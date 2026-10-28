@@ -1,0 +1,15 @@
+services:
+  filebrowser:
+    build: .
+    image: filemanager
+    # Default binding: loopback only. For LAN access change to "8080:8080"
+    # explicitly and ensure network-level restrictions yourself.
+    ports:
+      - "127.0.0.1:8080:8080"
+    # /config is the persistent writable volume for config.yaml and app.db
+    # (used starting from I02).
+    volumes:
+      - config:/config
+
+volumes:
+  config:

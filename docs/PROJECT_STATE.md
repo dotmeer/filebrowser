@@ -3,14 +3,14 @@
 ## Вы находитесь здесь
 
 - Текущая итерация: I01.
-- Статус: не начата.
-- Последняя завершённая итерация: нет.
-- Следующая разрешённая работа: I01 — каркас, Docker, health, тестовый проект.
+- Статус: завершена.
+- Последняя завершённая итерация: I01.
+- Следующая разрешённая работа: I02 — конфигурация и безопасная адресация.
 - Блокеры: не выявлены.
-- Последнее обновление: 2026-10-28 — консультация по ТЗ, решения внесены в SPEC.
+- Последнее обновление: 2026-10-28 — I01 выполнена, docker-проверки пройдены.
 
-Документация подготовлена и актуализирована по итогам консультации.
-Реализация пока не подтверждена.
+I01 подтверждена сборкой, тестами, runtime smoke-тестом `/healthz`,
+`docker build`, container smoke test и `docker compose up`.
 
 ## Правила обновления
 
@@ -33,7 +33,7 @@
 
 | Итерация | Содержание | Статус |
 |---|---|---|
-| I01 | Каркас, Docker, health, тестовый проект | Не начата |
+| I01 | Каркас, Docker, health, тестовый проект | Завершена |
 | I02 | Конфигурация и безопасная адресация | Не начата |
 | I03 | Чтение и HTTP-основа | Не начата |
 | I04 | Просмотр и навигация | Не начата |
@@ -54,24 +54,50 @@
 
 ### Сделано
 
-- Подготовлена спецификация.
-- Подготовлены инструкции агенту.
-- Подготовлены отдельные промпты итераций.
+- Создан solution `dotmeer.filebrowser.slnx` (.slnx, .NET 10);
+- создан серверный проект `src/dotmeer.filebrowser` — Blazor Web App,
+  Interactive Server (шаблон .NET 10);
+- создан тестовый проект `tests/dotmeer.filebrowser.Tests` (xUnit),
+  ссылка на серверный проект;
+- `global.json`: SDK `10.0.401`, roll-forward `latestFeature`;
+- `.gitignore`, `.dockerignore`;
+- multi-stage `Dockerfile`: `sdk:10.0` → publish; runtime `aspnet:10.0`,
+  непривилегированный пользователь (`USER $APP_UID`, UID 1654), порт 8080
+  (`ASPNETCORE_URLS=http://+:8080`);
+- `compose.yaml`: build, image `filemanager`, публикация только loopback
+  `127.0.0.1:8080:8080`, tom `/config` (для I02+);
+- `GET /healthz` (Minimal API, `Endpoints/HealthEndpoints.cs`):
+  `200 {"status":"ok"}`;
+- `README.md` с текущими командами запуска;
+- тест WebApplicationFactory: `/healthz` → 200, `application/json`;
+- из шаблона удалена демо-страница Weather и опция меню к ней;
+  Counter оставлен как проверка интерактивного рендеринга;
+- `Program` объявлен `public partial class` для WebApplicationFactory.
 
 ### Осталось
 
-- Проверить фактическое содержимое репозитория.
-- Выполнить I01 по промпту из SPEC.
-- Запустить доступные проверки.
+- I02: конфигурация и безопасная адресация;
+- в рамках I02 учесть права `/config` (named volume) для
+  непривилегированного пользователя.
 
 ### Следующее конкретное действие
 
-Начать новую сессию в каталоге репозитория.
-Передать модели промпт I01 из `docs/SPEC.md`.
+Сессия I02: YAML-конфигурация со строгой валидацией, `config.example.yaml`,
+FileRef (root + относительный path), единый resolver/validator,
+запреты (symlink, одинаковые/вложенные корни, пересечение с /config),
+реальные файловые тесты.
 
 ## Подтверждённые возможности
 
-Пока нет.
+- Решение `dotmeer.filebrowser.slnx` собирается без ошибок и предупреждений
+  (SDK 10.0.401, net10.0);
+- `GET /healthz` отвечает `200` с телом `{"status":"ok"}` — подтверждено
+  тестом WebApplicationFactory и runtime smoke-тестом локально запущенного
+  приложения;
+- тестовый проект работает: `dotnet test` — 1/1 пройден;
+- Docker-образ `filemanager` собирается (`docker build`) и запускается:
+  `/healthz` и `/` отвечают 200 в контейнере, процесс работает от
+  непривилегированного пользователя (uid 1654).
 
 Добавлять только реально реализованное поведение.
 
@@ -79,13 +105,15 @@
 
 | Проверка | Результат | Примечание |
 |---|---|---|
-| dotnet build | Не запускалась | Реализация не начата |
-| dotnet test | Не запускалась | Реализация не начата |
-| Linux filesystem tests | Не запускались | Требуется Linux-среда |
-| docker build | Не запускалась | Реализация не начата |
-| docker compose config | Не запускалась | Реализация не начата |
-| Container smoke test | Не запускался | Реализация не начата |
-| UI manual checklist | Не выполнялся | Реализация не начата |
+| dotnet build | Пройдено | 0 ошибок, 0 предупреждений; SDK 10.0.401 |
+| dotnet test | Пройдено | 1/1: WebApplicationFactory GET /healthz → 200, application/json |
+| /healthz runtime smoke | Пройдено | `dotnet src/...dll --urls http://127.0.0.1:5080` → 200 `{"status":"ok"}` |
+| docker compose config | Пройдено | Команда выполнилась; образ filemanager, port 127.0.0.1:8080:8080, volume config:/config |
+| docker build | Пройдено | `docker build -t filemanager .` — образ `filemanager:latest` собран (build sdk:10.0 → runtime aspnet:10.0) |
+| Container smoke test | Пройдено | `docker run -p 127.0.0.1:8080:8080`: `/healthz` 200 `{"status":"ok"}`, `/` 200, процесс под uid=1654(app), не root |
+| docker compose up --build | Пройдено | `/healthz` 200; volume `filebrowser_config` и network созданы, убраны через `down -v` |
+| Linux filesystem tests | Не запускались | Реализация файловых операций начинается в I02; требуется Linux-среда |
+| UI manual checklist | Не выполнялся | Файлового UI ещё нет (I04) |
 
 Результаты: пройдено / не пройдено / не запускалось.
 
@@ -94,20 +122,27 @@
 
 ## Среда и ограничения
 
-Заполняется первой рабочей сессией:
+Заполнено рабочей сессией I01 (2026-10-28):
 
-- ОС разработки:
-- Версия dotnet SDK:
-- Docker доступен:
-- Linux-контейнеры доступны:
-- Доступны две файловые системы для cross-device теста:
-- Команды запуска:
-- Особенности локальной конфигурации:
+- ОС разработки: Windows (win32), оболочка PowerShell;
+- Версия dotnet SDK: 10.0.401 (установлен; зафиксирован в global.json,
+  roll-forward `latestFeature`);
+- Docker доступен: да (daemon 25.0.3); проверены `docker build`,
+  `docker run`, `docker compose` (config/up/down), Linux-контейнеры;
+- Linux-контейнеры доступны: да (Server OS: linux);
+- Доступны две файловые системы для cross-device теста: не проверялось;
+- Команды запуска: `dotnet run --project src/dotmeer.filebrowser`;
+  docker: `docker build -t filemanager .`, `docker compose up --build`
+  (см. README);
+- Особенности локальной конфигурации: `init`-профиль и шаблоны .NET 10;
+  WebApplicationFactory-тест работает без дополнительной настройки
+  (content root определяется по ссылке на проект).
 
 Известно из консультации:
 - OTEL observability-стек (Collector) уже развёрнут пользователем отдельно;
   приложение подключается к нему через стандартные `OTEL_*` переменные
-  (инструкция — в SPEC §18 и README).
+  (инструкция — в SPEC §18 и README; подключение к OTel запланировано
+  в итерации наблюдаемости).
 
 ## Известные дефекты
 
@@ -155,6 +190,9 @@
 | D025 | Прогресс в SQLite не чаще 1 р/с; переходы состояний — сразу | Баланс нагрузки и свежести |
 | D026 | OTLP экспорт — опционален; подключение к внешнему Collector через OTEL_* | У пользователя уже развёрнут OTEL-стек |
 | D027 | Roadmap — список направлений без порядка и сроков | Каждое направление проектируется отдельно |
+| D028 | Решение в формате .slnx (`dotmeer.filebrowser.slnx`) | Формат из структуры репозитория SPEC §20 |
+| D029 | Демо-страницы шаблона Blazor удалены (Weather и ссылка в меню); Counter оставлен | Каркас без демо-заглушек; Counter проверяет интерактивный рендеринг |
+| D030 | `/healthz` в I01 всегда 200; 503 появится с введением критичных зависимостей (например SQLite) | На этапе каркаса внешних зависимостей нет |
 
 При изменении решения:
 - не удалять историю;
@@ -220,6 +258,43 @@ Read-only корни отдельным пунктом не идут: их ме�
 - Решения: D009–D027.
 - Остаток: проверить согласованный текст документации.
 - Следующий шаг: I01.
+
+### S002 — 2026-10-28 — I01
+
+- Цель: собрать собираемое приложение и контейнерный запуск.
+- Выполнено:
+  - solution `.slnx`, серверный проект Blazor Web App (Interactive Server),
+    тестовый проект xUnit со ссылкой на серверный;
+  - `global.json` (SDK 10.0.401, roll-forward `latestFeature`);
+  - `.gitignore`, `.dockerignore`, multi-stage `Dockerfile`
+    (runtime `aspnet:10.0`, непривилегированный пользователь, порт 8080),
+    `compose.yaml` (loopback `127.0.0.1:8080:8080`, volume `/config`);
+  - `GET /healthz` → `200 {"status":"ok"}` (Minimal API, `Endpoints`);
+  - README с командами сборки/запуска/health-check;
+  - WebApplicationFactory-тест `/healthz`.
+- Изменённые ключевые файлы: `dotmeer.filebrowser.slnx`, `global.json`,
+  `.gitignore`, `.dockerignore`, `Dockerfile`, `compose.yaml`, `README.md`,
+  `src/dotmeer.filebrowser/*`, `tests/dotmeer.filebrowser.Tests/*`,
+  `docs/PROJECT_STATE.md`.
+- Новые зависимости: `Microsoft.AspNetCore.Mvc.Testing` 10.0.14
+  (тестовый проект) — требуется для WebApplicationFactory-тестов HTTP
+  (SPEC §19, AGENTS); xunit, `Microsoft.NET.Test.Sdk`,
+  `xunit.runner.visualstudio`, `coverlet.collector` — из шаблона xunit.
+- Проверки:
+  - `dotnet build` — пройдено (0 ошибок, 0 предупреждений);
+  - `dotnet test` — пройдено (1/1);
+  - smoke-тест `/healthz` на локально запущенном приложении — пройдено (200);
+  - `docker compose config` — пройдено;
+  - `docker build -t filemanager .` — пройдено: образ `filemanager:latest`
+    собран (build sdk:10.0 → publish → runtime aspnet:10.0);
+  - container smoke test (`docker run -p 127.0.0.1:8080:8080`) — пройдено:
+    `/healthz` 200, `/` 200, процесс под uid=1654(app), не root;
+  - `docker compose up -d --build` — пройдено: `/healthz` 200; volume
+    `filebrowser_config` и network созданы, убраны через `down -v`.
+- Решения: D028–D030.
+- Остаток: учесть права `/config` (named volume) для непривилегированного
+  пользователя в рамках I02 (volume ownership).
+- Следующий шаг: I02 — конфигурация и безопасная адресация.
 
 <!--
 Шаблон следующей записи:
