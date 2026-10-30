@@ -6,8 +6,28 @@ services:
     # explicitly and ensure network-level restrictions yourself.
     ports:
       - "127.0.0.1:8080:8080"
-    # /config is the persistent writable volume for config.yaml and app.db
-    # (used starting from I02).
+    user: "${FILEBROWSER_UID:-1654}:${FILEBROWSER_GID:-1654}"
+    depends_on:
+      config-permissions:
+        condition: service_completed_successfully
+    volumes:
+      - config:/config
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/data
+
+  # A named volume is initially owned by root. Set its owner before starting
+  # the unprivileged application process.
+  config-permissions:
+    build: .
+    image: filemanager
+    user: "0:0"
+    environment:
+      FILEBROWSER_UID: "${FILEBROWSER_UID:-1654}"
+      FILEBROWSER_GID: "${FILEBROWSER_GID:-1654}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - chown -R "$${FILEBROWSER_UID}:$${FILEBROWSER_GID}" /config
     volumes:
       - config:/config
 

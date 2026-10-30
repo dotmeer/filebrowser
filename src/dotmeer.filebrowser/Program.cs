@@ -1,11 +1,18 @@
 using dotmeer.filebrowser.Components;
+using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.Endpoints;
+using dotmeer.filebrowser.FileSystem;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var configPath = builder.Configuration["ConfigPath"] ?? "/config/config.yaml";
+var fileBrowserConfiguration = FileBrowserConfigurationLoader.Load(configPath);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddSingleton(fileBrowserConfiguration);
+builder.Services.AddSingleton<PathResolver>();
 
 var app = builder.Build();
 

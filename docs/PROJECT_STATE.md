@@ -2,15 +2,17 @@
 
 ## Вы находитесь здесь
 
-- Текущая итерация: I01.
+- Текущая итерация: I02 — конфигурация и безопасная адресация.
 - Статус: завершена.
-- Последняя завершённая итерация: I01.
-- Следующая разрешённая работа: I02 — конфигурация и безопасная адресация.
+- Последняя завершённая итерация: I02.
+- Следующая разрешённая работа: I03 — чтение файловой системы и HTTP-основа.
 - Блокеры: не выявлены.
-- Последнее обновление: 2026-10-28 — I01 выполнена, docker-проверки пройдены.
+- Последнее обновление: 2026-10-30 — I02 реализована; Linux-проверки не
+  выполнены, потому что Docker daemon вернул ошибку 500.
 
-I01 подтверждена сборкой, тестами, runtime smoke-тестом `/healthz`,
-`docker build`, container smoke test и `docker compose up`.
+I02 подтверждена сборкой и 18 тестами на Windows. Docker Compose конфигурация
+прошла проверку. Сборка Docker-образа и Linux-тесты не выполнены из-за
+недоступности daemon в этой сессии.
 
 ## Правила обновления
 
@@ -34,70 +36,69 @@ I01 подтверждена сборкой, тестами, runtime smoke-те�
 | Итерация | Содержание | Статус |
 |---|---|---|
 | I01 | Каркас, Docker, health, тестовый проект | Завершена |
-| I02 | Конфигурация и безопасная адресация | Не начата |
-| I03 | Чтение и HTTP-основа | Не начата |
-| I04 | Просмотр и навигация | Не начата |
+| I02 | Конфигурация и безопасная адресация | Завершена |
+| I03 | Чтение файловой системы и HTTP-основа | Не начата |
+| I04 | UI просмотра и навигация | Не начата |
 | I05 | mkdir, rename, delete | Не начата |
 | I06 | SQLite и жизненный цикл задач | Не начата |
-| I07 | Copy | Не начата |
-| I08 | Move | Не начата |
-| I09 | UI задач | Не начата |
-| I10 | Download и ZIP | Не начата |
-| I11 | Upload | Не начата |
-| I12 | Наблюдаемость и приёмка | Не начата |
+| I07 | Исполнитель copy | Не начата |
+| I08 | Исполнитель move | Не начата |
+| I09 | UI задач и уведомления | Не начата |
+| I10 | Download | Не начата |
+| I11 | Наблюдаемость, документация, приёмка | Не начата |
 
-## Текущая итерация
+## Текущая итерация: I02 — Конфигурация и пути
 
 ### Цель
 
-Подготовить собираемое приложение и контейнерный запуск.
+Реализовать строгую YAML-конфигурацию и безопасную адресацию файлов
+по публичной ссылке `root + относительный path`, согласно SPEC §6–8
+и промпту I02 в SPEC §23.
 
 ### Сделано
 
-- Создан solution `dotmeer.filebrowser.slnx` (.slnx, .NET 10);
-- создан серверный проект `src/dotmeer.filebrowser` — Blazor Web App,
-  Interactive Server (шаблон .NET 10);
-- создан тестовый проект `tests/dotmeer.filebrowser.Tests` (xUnit),
-  ссылка на серверный проект;
-- `global.json`: SDK `10.0.401`, roll-forward `latestFeature`;
-- `.gitignore`, `.dockerignore`;
-- multi-stage `Dockerfile`: `sdk:10.0` → publish; runtime `aspnet:10.0`,
-  непривилегированный пользователь (`USER $APP_UID`, UID 1654), порт 8080
-  (`ASPNETCORE_URLS=http://+:8080`);
-- `compose.yaml`: build, image `filemanager`, публикация только loopback
-  `127.0.0.1:8080:8080`, tom `/config` (для I02+);
-- `GET /healthz` (Minimal API, `Endpoints/HealthEndpoints.cs`):
-  `200 {"status":"ok"}`;
-- `README.md` с текущими командами запуска;
-- тест WebApplicationFactory: `/healthz` → 200, `application/json`;
-- из шаблона удалена демо-страница Weather и опция меню к ней;
-  Counter оставлен как проверка интерактивного рендеринга;
-- `Program` объявлен `public partial class` для WebApplicationFactory.
+- Добавлен `YamlDotNet` 16.3.0 и загрузчик YAML, который запускается один раз
+  до старта приложения; неизвестные поля и дублирующиеся ключи отклоняются.
+- Добавлены строгая проверка `workers`, имён и путей корней, уникальности имён
+  без учёта регистра, пересечения корней между собой и с каталогом
+  конфигурации, а также symlink в существующих компонентах пути корня.
+- Добавлен `config.example.yaml`; `ConfigPath` задаётся стандартной
+  конфигурацией ASP.NET Core, по умолчанию `/config/config.yaml`.
+- Добавлены публичный `FileRef`, общий `PathResolver` и проверка
+  существующего объекта либо нового имени: path traversal, абсолютные пути,
+  обратный слеш, NUL, symlink и специальный объект отклоняются.
+- Недоступный корень не мешает запуску и выдаёт обобщённую ошибку только при
+  обращении к нему.
+- Обновлены Dockerfile, Compose и README: конфигурация подключается read-only,
+  а init-сервис задаёт владельца named volume `/config` UID/GID процесса.
+- Добавлены реальные файловые и HTTP-тесты на временных каталогах.
 
 ### Осталось
 
-- I02: конфигурация и безопасная адресация;
-- в рамках I02 учесть права `/config` (named volume) для
-  непривилегированного пользователя.
+- Повторить Linux-тесты с symlink и Docker smoke-тест после восстановления
+  Docker daemon. Это не блокирует I03, но результат должен быть зафиксирован
+  при первой доступной Linux-проверке.
 
 ### Следующее конкретное действие
 
-Сессия I02: YAML-конфигурация со строгой валидацией, `config.example.yaml`,
-FileRef (root + относительный path), единый resolver/validator,
-запреты (symlink, одинаковые/вложенные корни, пересечение с /config),
-реальные файловые тесты.
+I03 по промпту SPEC §23: добавить сервис чтения корней и каталогов, `GET
+/api/fs/roots` и `GET /api/fs/list`, DTO без физических путей, обработку
+ошибок без раскрытия путей и тесты WebApplicationFactory.
 
 ## Подтверждённые возможности
 
 - Решение `dotmeer.filebrowser.slnx` собирается без ошибок и предупреждений
   (SDK 10.0.401, net10.0);
+- YAML-конфигурация загружается однократно при старте; отсутствующая или
+  невалидная конфигурация останавливает запуск, а недоступный корень — нет;
+- общий resolver принимает только публичные `root + path`, проверяет границы
+  корня и symlink в существующих компонентах;
 - `GET /healthz` отвечает `200` с телом `{"status":"ok"}` — подтверждено
-  тестом WebApplicationFactory и runtime smoke-тестом локально запущенного
-  приложения;
-- тестовый проект работает: `dotnet test` — 1/1 пройден;
-- Docker-образ `filemanager` собирается (`docker build`) и запускается:
-  `/healthz` и `/` отвечают 200 в контейнере, процесс работает от
-  непривилегированного пользователя (uid 1654).
+  тестом WebApplicationFactory, включая недоступный корень;
+- тестовый проект работает: `dotnet test` — 18/18 пройдено;
+- Dockerfile и Compose прошлого этапа ранее проверялись; изменённая для I02
+  конфигурация контейнера требует повторной проверки после восстановления
+  Docker daemon.
 
 Добавлять только реально реализованное поведение.
 
@@ -105,14 +106,12 @@ FileRef (root + относительный path), единый resolver/validato
 
 | Проверка | Результат | Примечание |
 |---|---|---|
-| dotnet build | Пройдено | 0 ошибок, 0 предупреждений; SDK 10.0.401 |
-| dotnet test | Пройдено | 1/1: WebApplicationFactory GET /healthz → 200, application/json |
-| /healthz runtime smoke | Пройдено | `dotnet src/...dll --urls http://127.0.0.1:5080` → 200 `{"status":"ok"}` |
-| docker compose config | Пройдено | Команда выполнилась; образ filemanager, port 127.0.0.1:8080:8080, volume config:/config |
-| docker build | Пройдено | `docker build -t filemanager .` — образ `filemanager:latest` собран (build sdk:10.0 → runtime aspnet:10.0) |
-| Container smoke test | Пройдено | `docker run -p 127.0.0.1:8080:8080`: `/healthz` 200 `{"status":"ok"}`, `/` 200, процесс под uid=1654(app), не root |
-| docker compose up --build | Пройдено | `/healthz` 200; volume `filebrowser_config` и network созданы, убраны через `down -v` |
-| Linux filesystem tests | Не запускались | Реализация файловых операций начинается в I02; требуется Linux-среда |
+| dotnet build --no-restore | Пройдено | 0 ошибок, 0 предупреждений; SDK 10.0.401 |
+| dotnet test --no-build | Пройдено | 18/18: YAML, path traversal, корень, новое имя, symlink, недоступный корень и `/healthz` |
+| docker compose config | Пройдено | Проверены `config-permissions`, read-only config.yaml, `/data` и UID/GID 1654:1654 |
+| docker build -t filemanager-i02 . | Не пройдено | Docker daemon вернул HTTP 500 на `//./pipe/docker_engine/_ping` |
+| Container smoke test | Не запускался | Требует работающий Docker daemon |
+| Linux filesystem tests | Не запускались | Требует работающий Docker daemon; Windows не разрешил создать symlink, тест завершился без сценария symlink |
 | UI manual checklist | Не выполнялся | Файлового UI ещё нет (I04) |
 
 Результаты: пройдено / не пройдено / не запускалось.
@@ -122,14 +121,14 @@ FileRef (root + относительный path), единый resolver/validato
 
 ## Среда и ограничения
 
-Заполнено рабочей сессией I01 (2026-10-28):
+Обновлено рабочей сессией I02 (2026-10-30):
 
 - ОС разработки: Windows (win32), оболочка PowerShell;
 - Версия dotnet SDK: 10.0.401 (установлен; зафиксирован в global.json,
   roll-forward `latestFeature`);
-- Docker доступен: да (daemon 25.0.3); проверены `docker build`,
-  `docker run`, `docker compose` (config/up/down), Linux-контейнеры;
-- Linux-контейнеры доступны: да (Server OS: linux);
+- Docker CLI и `docker compose config` доступны; в этой сессии Docker daemon
+  не отвечает: `docker build` получил HTTP 500 на named pipe;
+- Linux-контейнеры в этой сессии не проверялись;
 - Доступны две файловые системы для cross-device теста: не проверялось;
 - Команды запуска: `dotnet run --project src/dotmeer.filebrowser`;
   docker: `docker build -t filemanager .`, `docker compose up --build`
@@ -193,6 +192,7 @@ FileRef (root + относительный path), единый resolver/validato
 | D028 | Решение в формате .slnx (`dotmeer.filebrowser.slnx`) | Формат из структуры репозитория SPEC §20 |
 | D029 | Демо-страницы шаблона Blazor удалены (Weather и ссылка в меню); Counter оставлен | Каркас без демо-заглушек; Counter проверяет интерактивный рендеринг |
 | D030 | `/healthz` в I01 всегда 200; 503 появится с введением критичных зависимостей (например SQLite) | На этапе каркаса внешних зависимостей нет |
+| D031 | Compose монтирует `config.yaml` только для чтения и перед запуском выдаёт владельца named volume `/config` UID/GID процесса | Конфигурация не изменяется через UI, а SQLite в следующих этапах требует записи от непривилегированного пользователя |
 
 При изменении решения:
 - не удалять историю;
@@ -295,6 +295,38 @@ Read-only корни отдельным пунктом не идут: их ме�
 - Остаток: учесть права `/config` (named volume) для непривилегированного
   пользователя в рамках I02 (volume ownership).
 - Следующий шаг: I02 — конфигурация и безопасная адресация.
+
+### S003 — 2026-10-30 — I02
+
+- Цель: реализовать строгую YAML-конфигурацию и общую безопасную адресацию
+  файлов.
+- Выполнено:
+  - `YamlDotNet` 16.3.0 добавлен в серверный проект для загрузки YAML;
+    зависимость нужна для формата конфигурации, заданного SPEC;
+  - `FileBrowserConfigurationLoader` строго валидирует YAML, workers, имена,
+    абсолютные пути, пересечения и symlink в настроенных корнях;
+  - добавлены `FileRef`, `PathResolver` и `PathInspection` для проверки
+    публичного пути, границы корня, всех существующих компонентов, symlink и
+    нового имени;
+  - `config.example.yaml`, Dockerfile, Compose и README обновлены для
+    конфигурации и прав `/config`;
+  - добавлены 17 тестов I02 и обновлён HTTP-тест; всего 18 тестов.
+- Изменённые ключевые файлы: `config.example.yaml`, `Dockerfile`,
+  `compose.yaml`, `README.md`, `src/dotmeer.filebrowser/Configuration/*`,
+  `src/dotmeer.filebrowser/FileSystem/*`, `Program.cs`, тесты и
+  `docs/PROJECT_STATE.md`.
+- Проверки:
+  - `dotnet build --no-restore` — пройдено, 0 ошибок, 0 предупреждений;
+  - `dotnet test --no-build` — пройдено, 18/18;
+  - `docker compose config` — пройдено;
+  - `docker build -t filemanager-i02 .` — не пройдено: Docker daemon вернул
+    HTTP 500 на named pipe;
+  - Linux-тест symlink и container smoke test не запускались из-за
+    недоступного Docker daemon.
+- Решения: D031.
+- Остаток: при восстановлении Docker daemon повторить сборку образа,
+  контейнерный smoke-тест и Linux-сценарий symlink.
+- Следующий шаг: I03 — чтение файловой системы и HTTP-основа.
 
 <!--
 Шаблон следующей записи:

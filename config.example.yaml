@@ -1,0 +1,6 @@
+# The configuration is loaded once during startup.
+workers: 2
+
+roots:
+  - name: files
+    path: /data

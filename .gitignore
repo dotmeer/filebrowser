@@ -16,6 +16,8 @@ coverage/
 
 # Local configuration and data
 config/
+config.yaml
+data/
 *.db
 
 # OS

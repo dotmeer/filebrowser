@@ -25,6 +25,7 @@ ENV ASPNETCORE_URLS=http://+:8080
 
 # Non-privileged user provided by the aspnet image (UID 1654).
 # The user can be overridden at run time with --user / user: in compose.
+RUN mkdir /config && chown $APP_UID:$APP_UID /config
 USER $APP_UID
 
 COPY --from=build /app/publish .
