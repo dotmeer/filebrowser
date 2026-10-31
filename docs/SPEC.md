@@ -726,10 +726,13 @@ HTTP API использует те же прикладные сервисы, б�
 
 ### Чтение
 
-- GET `/api/fs/roots`
-- GET `/api/fs/list?root=...&path=...`
+- GET `/api/fs/roots` → массив `{ name, available }`; физический путь
+  корня не возвращается. `available` проверяется заново при запросе.
+- GET `/api/fs/list?root=...&path=...` → `{ root, path, entries }`.
 
-Корни содержат публичное имя, но не физический path.
+Физические пути в ответах отсутствуют. Служебные объекты `.filebrowser-*`
+не включаются в каталог. Элементы сортируются: каталоги, обычные файлы,
+неподдерживаемые элементы; внутри групп — ordinal по имени.
 
 Элемент списка:
 
@@ -738,6 +741,13 @@ HTTP API использует те же прикладные сервисы, б�
 - kind: file/directory/unsupported;
 - size: nullable;
 - modifiedAtUtc.
+
+Symlink и специальные объекты возвращаются с `kind: unsupported`; перейти
+к ним нельзя. Ошибки API возвращаются как ProblemDetails с дополнительными
+стабильными полями `code` и `traceId`. Коды чтения файловой системы:
+`invalid_request` (400), `not_found` (404), `root_unavailable` (503),
+`unsupported_object` (422), `internal_error` (500). Текст ошибки не содержит
+физический путь.
 
 ### Изменения
 

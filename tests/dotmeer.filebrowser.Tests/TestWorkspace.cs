@@ -1,5 +1,10 @@
 namespace dotmeer.filebrowser.Tests;
 
+[CollectionDefinition("Web application factory", DisableParallelization = true)]
+public sealed class WebApplicationFactoryCollection
+{
+}
+
 internal sealed class TestWorkspace : IDisposable
 {
     private readonly string _path;

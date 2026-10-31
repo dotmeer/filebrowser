@@ -43,12 +43,12 @@ internal static class PathInspection
 
         if (IsSymlink(path, attributes))
         {
-            throw new FileSystemResolutionException("Символические ссылки не поддерживаются.");
+            throw new UnsupportedFileSystemObjectException("Символические ссылки не поддерживаются.");
         }
 
         if ((attributes & FileAttributes.Device) != 0)
         {
-            throw new FileSystemResolutionException("Тип объекта не поддерживается.");
+            throw new UnsupportedFileSystemObjectException("Тип объекта не поддерживается.");
         }
     }
 

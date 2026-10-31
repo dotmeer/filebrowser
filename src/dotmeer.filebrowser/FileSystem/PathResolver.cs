@@ -24,13 +24,13 @@ public sealed class PathResolver
             currentPath = Path.Combine(currentPath, segments[index]);
             if (!PathInspection.Exists(currentPath))
             {
-                throw new FileSystemResolutionException("Запрошенный объект не существует.");
+                throw new FileSystemObjectNotFoundException("Запрошенный объект не существует.");
             }
 
             PathInspection.ThrowIfUnsupported(currentPath);
             if (index < segments.Count - 1 && !Directory.Exists(currentPath))
             {
-                throw new FileSystemResolutionException("Компонент пути не является каталогом.");
+                throw new InvalidFileSystemRequestException("Компонент пути не является каталогом.");
             }
         }
 
@@ -42,14 +42,14 @@ public sealed class PathResolver
         var resolvedParent = ResolveExisting(parent);
         if (!resolvedParent.IsDirectory)
         {
-            throw new FileSystemResolutionException("Родительский объект не является каталогом.");
+            throw new InvalidFileSystemRequestException("Родительский объект не является каталогом.");
         }
 
         ValidateNewName(name);
         var physicalPath = Path.GetFullPath(Path.Combine(resolvedParent.PhysicalPath, name));
         if (!PathInspection.IsWithin(resolvedParent.PhysicalPath, physicalPath))
         {
-            throw new FileSystemResolutionException("Путь находится вне разрешённого корня.");
+            throw new InvalidFileSystemRequestException("Путь находится вне разрешённого корня.");
         }
 
         if (PathInspection.Exists(physicalPath))
@@ -70,7 +70,7 @@ public sealed class PathResolver
             || name.IndexOfAny(['/', '\\', '\0']) >= 0
             || name.StartsWith(".filebrowser-", StringComparison.Ordinal))
         {
-            throw new FileSystemResolutionException("Имя объекта недопустимо.");
+            throw new InvalidFileSystemRequestException("Имя объекта недопустимо.");
         }
     }
 
@@ -78,7 +78,7 @@ public sealed class PathResolver
     {
         if (string.IsNullOrWhiteSpace(rootName) || !_configuration.RootsByName.TryGetValue(rootName, out var root))
         {
-            throw new FileSystemResolutionException("Указанный корень не найден.");
+            throw new FileSystemObjectNotFoundException("Указанный корень не найден.");
         }
 
         return root;
@@ -88,7 +88,7 @@ public sealed class PathResolver
     {
         if (path is null || path.IndexOf('\0') >= 0 || path.Contains('\\') || Path.IsPathRooted(path))
         {
-            throw new FileSystemResolutionException("Относительный путь недопустим.");
+            throw new InvalidFileSystemRequestException("Относительный путь недопустим.");
         }
 
         if (path.Length == 0)
@@ -99,7 +99,7 @@ public sealed class PathResolver
         var segments = path.Split('/', StringSplitOptions.None);
         if (segments.Any(segment => string.IsNullOrEmpty(segment) || segment is "." or ".."))
         {
-            throw new FileSystemResolutionException("Относительный путь недопустим.");
+            throw new InvalidFileSystemRequestException("Относительный путь недопустим.");
         }
 
         return segments;
@@ -118,7 +118,7 @@ public sealed class PathResolver
         }
         catch (InvalidOperationException exception)
         {
-            throw new FileSystemResolutionException("Символические ссылки не поддерживаются.", exception);
+            throw new UnsupportedFileSystemObjectException("Символические ссылки не поддерживаются.", exception);
         }
 
         PathInspection.ThrowIfUnsupported(root.PhysicalPath);
@@ -145,6 +145,31 @@ public class FileSystemResolutionException : Exception
 public sealed class RootUnavailableException : FileSystemResolutionException
 {
     public RootUnavailableException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class FileSystemObjectNotFoundException : FileSystemResolutionException
+{
+    public FileSystemObjectNotFoundException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class InvalidFileSystemRequestException : FileSystemResolutionException
+{
+    public InvalidFileSystemRequestException(string message) : base(message)
+    {
+    }
+}
+
+public sealed class UnsupportedFileSystemObjectException : FileSystemResolutionException
+{
+    public UnsupportedFileSystemObjectException(string message) : base(message)
+    {
+    }
+
+    public UnsupportedFileSystemObjectException(string message, Exception innerException) : base(message, innerException)
     {
     }
 }

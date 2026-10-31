@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace dotmeer.filebrowser.Tests;
 
+[Collection("Web application factory")]
 public class HealthzTests
 {
     [Fact]

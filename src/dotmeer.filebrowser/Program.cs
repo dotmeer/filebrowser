@@ -11,12 +11,15 @@ var fileBrowserConfiguration = FileBrowserConfigurationLoader.Load(configPath);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddAntiforgery();
 builder.Services.AddSingleton(fileBrowserConfiguration);
 builder.Services.AddSingleton<PathResolver>();
+builder.Services.AddSingleton<FileSystemReadService>();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+app.UseMiddleware<ApiExceptionMiddleware>();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -33,6 +36,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapHealthz();
+app.MapFileSystemRead();
 
 app.Run();
 

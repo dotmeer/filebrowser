@@ -16,7 +16,7 @@ public class PathResolverTests
         using var workspace = new TestWorkspace();
         var resolver = CreateResolver(workspace);
 
-        Assert.Throws<FileSystemResolutionException>(() => resolver.ResolveExisting(new FileRef("files", path)));
+        Assert.ThrowsAny<FileSystemResolutionException>(() => resolver.ResolveExisting(new FileRef("files", path)));
     }
 
     [Fact]
@@ -25,7 +25,7 @@ public class PathResolverTests
         using var workspace = new TestWorkspace();
         var resolver = CreateResolver(workspace);
 
-        Assert.Throws<FileSystemResolutionException>(() =>
+        Assert.ThrowsAny<FileSystemResolutionException>(() =>
             resolver.ResolveExisting(new FileRef("files", "../root-other/document.txt")));
     }
 
@@ -53,11 +53,11 @@ public class PathResolverTests
         Assert.Equal(Path.Combine(workspace.RootPath, "new-folder"), result.PhysicalPath);
         Assert.False(File.Exists(result.PhysicalPath));
         Assert.False(Directory.Exists(result.PhysicalPath));
-        Assert.Throws<FileSystemResolutionException>(() =>
+        Assert.ThrowsAny<FileSystemResolutionException>(() =>
             resolver.ResolveNewChild(new FileRef("files", string.Empty), ".filebrowser-tmp"));
 
         File.WriteAllText(Path.Combine(workspace.RootPath, "already-exists"), "content");
-        Assert.Throws<FileSystemResolutionException>(() =>
+        Assert.ThrowsAny<FileSystemResolutionException>(() =>
             resolver.ResolveNewChild(new FileRef("files", string.Empty), "already-exists"));
     }
 
@@ -88,7 +88,7 @@ public class PathResolverTests
             FileBrowserConfigurationLoader.Load(workspace.WriteRawConfiguration(linkedRootYaml)));
 
         var resolver = CreateResolver(workspace);
-        Assert.Throws<FileSystemResolutionException>(() =>
+        Assert.ThrowsAny<FileSystemResolutionException>(() =>
             resolver.ResolveExisting(new FileRef("files", "linked/secret.txt")));
     }
 
