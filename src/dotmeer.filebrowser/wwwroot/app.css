@@ -50,6 +50,188 @@ h1:focus {
     border-color: #929292;
 }
 
+.browse-page, .settings-page, .home-page {
+    max-width: 1500px;
+    margin: 0 auto;
+}
+
+.browse-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.browse-header h1, .settings-page h1, .home-page h1 {
+    margin-bottom: 0.25rem;
+}
+
+.browse-selection, .muted {
+    color: #667085;
+    margin: 0;
+}
+
+.browse-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.directory-sidebar, .directory-content {
+    min-width: 0;
+    background: #fff;
+    border: 1px solid #e2e5e9;
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.directory-sidebar h2 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+}
+
+.directory-tree, .directory-tree ul {
+    list-style: none;
+    margin: 0;
+    padding-left: 0.9rem;
+}
+
+.directory-tree {
+    padding-left: 0;
+}
+
+.tree-entry {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 0.2rem;
+}
+
+.tree-toggle, .tree-toggle-placeholder {
+    width: 1.5rem;
+    flex: 0 0 1.5rem;
+    text-align: center;
+}
+
+.tree-toggle, .tree-link, .tree-retry, .breadcrumbs button, .entry-link {
+    border: 0;
+    background: transparent;
+}
+
+.tree-toggle {
+    color: #475467;
+    padding: 0.1rem;
+}
+
+.tree-link {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #1d2939;
+    padding: 0.3rem 0.2rem;
+    text-align: left;
+}
+
+.tree-link:hover, .breadcrumbs button:hover, .entry-link:hover {
+    color: #175cd3;
+    text-decoration: underline;
+}
+
+.tree-unavailable, .tree-message, .tree-retry {
+    color: #667085;
+    font-size: 0.82rem;
+}
+
+.tree-error, .browse-error {
+    color: #b42318;
+}
+
+.tree-message, .tree-retry {
+    margin-left: 1.8rem;
+}
+
+.breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    color: #667085;
+}
+
+.breadcrumbs button {
+    color: #175cd3;
+    padding: 0;
+}
+
+.browse-state {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: #475467;
+}
+
+.browse-error p {
+    margin: 0.5rem 0 1rem;
+}
+
+.file-table {
+    margin: 0;
+}
+
+.file-table th:first-child, .file-table td:first-child {
+    width: 2.5rem;
+}
+
+.file-table th, .file-table td {
+    vertical-align: middle;
+}
+
+.file-name {
+    max-width: 36rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.entry-link {
+    color: #175cd3;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+}
+
+.unsupported-entry {
+    color: #667085;
+}
+
+.settings-page, .home-page {
+    padding: 1rem 0;
+}
+
+@media (max-width: 760px) {
+    .browse-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .directory-sidebar {
+        max-height: 16rem;
+        overflow: auto;
+    }
+
+    .directory-content {
+        padding: 0.75rem;
+    }
+
+    .file-table {
+        min-width: 620px;
+    }
+}
+
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
     color: var(--bs-secondary-color);
     text-align: end;

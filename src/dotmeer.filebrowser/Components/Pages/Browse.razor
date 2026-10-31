@@ -1,0 +1,294 @@
+@page "/browse"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.WebUtilities
+@using dotmeer.filebrowser.FileSystem
+@inject FileSystemReadService Reader
+@inject NavigationManager Navigation
+@inject IJSRuntime JavaScript
+
+<PageTitle>Файлы</PageTitle>
+
+<section class="browse-page">
+    <header class="browse-header">
+        <div>
+            <h1>Файлы</h1>
+            @if (_listing is not null)
+            {
+                <p class="browse-selection">Выбрано: @_selection.Count</p>
+            }
+        </div>
+        <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
+            Обновить
+        </button>
+    </header>
+
+    <div class="browse-layout">
+        <aside class="directory-sidebar" aria-label="Дерево каталогов">
+            <h2>Каталоги</h2>
+            @if (_roots.Count == 0 && !_rootsLoading)
+            {
+                <p class="muted">Корни не настроены.</p>
+            }
+            else
+            {
+                <ul class="directory-tree">
+                    @foreach (var root in _roots)
+                    {
+                        <DirectoryTreeNode @key="root.Name" Root="@root.Name" Name="@root.Name" Path="" IsRoot="true"
+                                           Available="@root.Available" OnNavigate="NavigateToAsync" />
+                    }
+                </ul>
+            }
+        </aside>
+
+        <main class="directory-content">
+            @if (_listing is not null)
+            {
+                <nav class="breadcrumbs" aria-label="Путь к каталогу">
+                    <button type="button" @onclick="() => NavigateToAsync(new FileRef(_listing.Root, string.Empty))">
+                        @_listing.Root
+                    </button>
+                    @foreach (var crumb in GetBreadcrumbs())
+                    {
+                        <span aria-hidden="true">/</span>
+                        <button type="button" @onclick="() => NavigateToAsync(new FileRef(_listing.Root, crumb.Path))">
+                            @crumb.Name
+                        </button>
+                    }
+                </nav>
+            }
+
+            @if (_loading)
+            {
+                <div class="browse-state" role="status">Загрузка каталога…</div>
+            }
+            else if (_error is not null)
+            {
+                <div class="browse-state browse-error" role="alert">
+                    <strong>@_error</strong>
+                    <p>Проверьте адрес или выберите доступный корень дерева.</p>
+                    <button class="btn btn-outline-primary" type="button" @onclick="GoToFirstRootAsync">К корню</button>
+                </div>
+            }
+            else if (_listing is not null && _listing.Entries.Count == 0)
+            {
+                <div class="browse-state">Папка пуста.</div>
+            }
+            else if (_listing is not null)
+            {
+                <div class="table-responsive">
+                    <table class="table file-table">
+                        <thead>
+                            <tr>
+                                <th scope="col"><span class="visually-hidden">Выбрать</span></th>
+                                <th scope="col">Имя</th>
+                                <th scope="col">Тип</th>
+                                <th scope="col">Размер</th>
+                                <th scope="col">Изменён</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var entry in _listing.Entries)
+                            {
+                                <tr @key="entry.Path">
+                                    <td>
+                                        <input class="form-check-input" type="checkbox" aria-label="Выбрать @entry.Name"
+                                               checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind == "unsupported")"
+                                               @onchange="args => ToggleSelection(entry.Path, args.Value is true)" />
+                                    </td>
+                                    <td class="file-name" title="@entry.Name">
+                                        @if (entry.Kind == "directory")
+                                        {
+                                            <button class="entry-link" type="button"
+                                                    @onclick="() => NavigateToAsync(new FileRef(_listing.Root, entry.Path))">
+                                                <span aria-hidden="true">📁</span> @entry.Name
+                                            </button>
+                                        }
+                                        else if (entry.Kind == "unsupported")
+                                        {
+                                            <span class="unsupported-entry" title="Этот объект нельзя открыть">
+                                                <span aria-hidden="true">⚠</span> @entry.Name
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span><span aria-hidden="true">📄</span> @entry.Name</span>
+                                        }
+                                    </td>
+                                    <td>@GetKindLabel(entry.Kind)</td>
+                                    <td>@FormatSize(entry.Size)</td>
+                                    <td><time class="local-time" datetime="@entry.ModifiedAtUtc.ToString("O", CultureInfo.InvariantCulture)">@entry.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC</time></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </main>
+    </div>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "root")]
+    public string? RootQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "path")]
+    public string? PathQuery { get; set; }
+
+    private IReadOnlyList<RootDto> _roots = [];
+    private DirectoryListingDto? _listing;
+    private readonly HashSet<string> _selection = new(StringComparer.Ordinal);
+    private string? _error;
+    private bool _loading;
+    private bool _rootsLoading;
+    private int _requestVersion;
+
+    protected override Task OnParametersSetAsync() => LoadCurrentAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            await JavaScript.InvokeVoidAsync("fileBrowser.formatLocalTimes");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+        {
+            // During static prerendering JavaScript is not available yet.
+        }
+    }
+
+    private async Task LoadCurrentAsync()
+    {
+        var requestVersion = ++_requestVersion;
+        _loading = true;
+        _rootsLoading = true;
+        _error = null;
+        _selection.Clear();
+
+        try
+        {
+            _roots = await Task.Run(Reader.GetRoots);
+            if (requestVersion != _requestVersion)
+            {
+                return;
+            }
+            _rootsLoading = false;
+
+            var root = RootQuery ?? _roots.FirstOrDefault()?.Name;
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                _error = "Не настроен ни один корень файловой системы.";
+                _listing = null;
+                return;
+            }
+
+            _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty)));
+        }
+        catch (Exception exception)
+        {
+            if (requestVersion == _requestVersion)
+            {
+                _listing = null;
+                _error = GetSafeError(exception);
+            }
+        }
+        finally
+        {
+            if (requestVersion == _requestVersion)
+            {
+                _rootsLoading = false;
+                _loading = false;
+            }
+        }
+    }
+
+    private Task RefreshAsync() => LoadCurrentAsync();
+
+    private Task NavigateToAsync(FileRef fileRef)
+    {
+        var query = new Dictionary<string, string?>
+        {
+            ["root"] = fileRef.Root,
+            ["path"] = fileRef.Path
+        };
+        Navigation.NavigateTo(QueryHelpers.AddQueryString("/browse", query));
+        return Task.CompletedTask;
+    }
+
+    private Task GoToFirstRootAsync()
+    {
+        var root = _roots.FirstOrDefault()?.Name;
+        return root is null ? Task.CompletedTask : NavigateToAsync(new FileRef(root, string.Empty));
+    }
+
+    private IReadOnlyList<Breadcrumb> GetBreadcrumbs()
+    {
+        if (_listing is null || string.IsNullOrEmpty(_listing.Path))
+        {
+            return [];
+        }
+
+        var segments = _listing.Path.Split('/');
+        var crumbs = new List<Breadcrumb>(segments.Length);
+        var path = string.Empty;
+        foreach (var segment in segments)
+        {
+            path = path.Length == 0 ? segment : $"{path}/{segment}";
+            crumbs.Add(new Breadcrumb(segment, path));
+        }
+        return crumbs;
+    }
+
+    private void ToggleSelection(string path, bool selected)
+    {
+        if (selected)
+        {
+            _selection.Add(path);
+        }
+        else
+        {
+            _selection.Remove(path);
+        }
+    }
+
+    private static string GetKindLabel(string kind) => kind switch
+    {
+        "directory" => "Папка",
+        "file" => "Файл",
+        _ => "Не поддерживается"
+    };
+
+    private static string FormatSize(long? size)
+    {
+        if (size is null)
+        {
+            return "—";
+        }
+        if (size < 1024)
+        {
+            return $"{size} Б";
+        }
+        var units = new[] { "КБ", "МБ", "ГБ", "ТБ" };
+        var value = (double)size.Value;
+        var unit = -1;
+        do
+        {
+            value /= 1024;
+            unit++;
+        } while (value >= 1024 && unit < units.Length - 1);
+        return $"{value:0.#} {units[unit]}";
+    }
+
+    private static string GetSafeError(Exception exception) => exception switch
+    {
+        RootUnavailableException => "Корень временно недоступен.",
+        FileSystemObjectNotFoundException => "Корень или каталог не найден. Возможно, объект был перемещён или удалён.",
+        UnsupportedFileSystemObjectException => "Этот объект файловой системы не поддерживается.",
+        InvalidFileSystemRequestException => "Некорректный адрес каталога.",
+        FileSystemResolutionException => "Не удалось открыть каталог.",
+        _ => "Не удалось загрузить каталог. Проверьте доступ и повторите попытку."
+    };
+
+    private sealed record Breadcrumb(string Name, string Path);
+}

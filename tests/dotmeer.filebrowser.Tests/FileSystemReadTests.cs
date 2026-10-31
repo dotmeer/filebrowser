@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -109,13 +111,79 @@ public sealed class FileSystemReadTests
         Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("traceId").GetString()));
     }
 
+    [Fact]
+    public async Task BrowsePage_RendersRequestedDirectoryFromItsPublicUrl()
+    {
+        using var workspace = new TestWorkspace();
+        var directory = Path.Combine(workspace.RootPath, "folder");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "note.txt"), "content");
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/browse?root=files&path=folder");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"Status: {response.StatusCode}; body: {html}");
+        Assert.Contains("Файл", html);
+        Assert.Contains("note.txt", html);
+        Assert.Contains("Обновить", html);
+        Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SettingsPage_ExplainsConfigFileIsManagedOnServer()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/settings");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("config.yaml", html);
+        Assert.Contains("перезапустите приложение", html);
+    }
+
+    [Fact]
+    public async Task BrowsePage_ShowsEmptyStateForEmptyDirectory()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/browse?root=files");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Папка пуста.", html);
+    }
+
+    [Fact]
+    public async Task BrowsePage_ShowsSafeErrorForMissingDirectory()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/browse?root=files&path=missing");
+        var html = await response.Content.ReadAsStringAsync();
+        var visibleText = WebUtility.HtmlDecode(html);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("не найден", visibleText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("К корню", visibleText);
+        Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static TestHost CreateHost(string configPath)
     {
         var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
         var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
         Environment.SetEnvironmentVariable("ConfigPath", configPath);
         Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var factory = new WebApplicationFactory<Program>();
+        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
+        Directory.CreateDirectory(keyDirectory);
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
         try
         {
             var client = factory.CreateClient();
