@@ -54,7 +54,7 @@ public sealed class PathResolver
 
         if (PathInspection.Exists(physicalPath))
         {
-            throw new FileSystemResolutionException("Объект с таким именем уже существует.");
+            throw new FileSystemNameConflictException("Объект с таким именем уже существует.");
         }
 
         var relativePath = string.IsNullOrEmpty(resolvedParent.RelativePath)
@@ -152,6 +152,10 @@ public sealed class RootUnavailableException : FileSystemResolutionException
 public sealed class FileSystemObjectNotFoundException : FileSystemResolutionException
 {
     public FileSystemObjectNotFoundException(string message) : base(message)
+    {
+    }
+
+    public FileSystemObjectNotFoundException(string message, Exception innerException) : base(message, innerException)
     {
     }
 }

@@ -11,10 +11,11 @@ var fileBrowserConfiguration = FileBrowserConfigurationLoader.Load(configPath);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddAntiforgery();
+builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
 builder.Services.AddSingleton(fileBrowserConfiguration);
 builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
+builder.Services.AddSingleton<FileSystemWriteService>();
 
 var app = builder.Build();
 
@@ -36,7 +37,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapHealthz();
-app.MapFileSystemRead();
+app.MapFileSystem();
 
 app.Run();
 

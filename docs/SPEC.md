@@ -762,6 +762,11 @@ Symlink и специальные объекты возвращаются с `ki
 - POST `/api/fs/delete`
   - source: FileRef — ровно один объект.
 
+Все изменяющие запросы требуют antiforgery token, связанный с cookie текущей
+страницы приложения. Token передаётся в заголовке `X-CSRF-TOKEN`; отсутствие
+или невалидность токена возвращает `400` с кодом
+`antiforgery_validation_failed` до выполнения файловой операции.
+
 ### Передача
 
 - GET `/api/fs/download?root=...&path=...`

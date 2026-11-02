@@ -1,0 +1,241 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using dotmeer.filebrowser.Configuration;
+using dotmeer.filebrowser.FileSystem;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace dotmeer.filebrowser.Tests;
+
+[Collection("Web application factory")]
+public sealed class FileSystemWriteTests
+{
+    [Theory]
+    [InlineData("nested/name")]
+    [InlineData("nested\\name")]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData(".filebrowser-temp")]
+    public void CreateDirectory_RejectsNameThatIsNotASingleUserName(string name)
+    {
+        using var workspace = new TestWorkspace();
+        var writer = CreateWriter(workspace);
+
+        Assert.Throws<InvalidFileSystemRequestException>(() => writer.CreateDirectory(new FileRef("files", string.Empty), name));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(workspace.RootPath));
+    }
+
+    [Fact]
+    public void Rename_RefusesExistingDestinationWithoutOverwritingIt()
+    {
+        using var workspace = new TestWorkspace();
+        var source = Path.Combine(workspace.RootPath, "source.txt");
+        var destination = Path.Combine(workspace.RootPath, "destination.txt");
+        File.WriteAllText(source, "source");
+        File.WriteAllText(destination, "keep");
+        var writer = CreateWriter(workspace);
+
+        Assert.Throws<FileSystemNameConflictException>(() => writer.Rename(new FileRef("files", "source.txt"), "destination.txt"));
+
+        Assert.Equal("source", File.ReadAllText(source));
+        Assert.Equal("keep", File.ReadAllText(destination));
+    }
+
+    [Fact]
+    public void Delete_RemovesExactlyTheRequestedObject()
+    {
+        using var workspace = new TestWorkspace();
+        var removable = Path.Combine(workspace.RootPath, "removable");
+        Directory.CreateDirectory(removable);
+        File.WriteAllText(Path.Combine(removable, "inside.txt"), "content");
+        var survivor = Path.Combine(workspace.RootPath, "survivor.txt");
+        File.WriteAllText(survivor, "keep");
+        var writer = CreateWriter(workspace);
+
+        writer.Delete(new FileRef("files", "removable"));
+
+        Assert.False(Directory.Exists(removable));
+        Assert.Equal("keep", File.ReadAllText(survivor));
+    }
+
+    [Fact]
+    public void RenameAndDelete_RejectRoot()
+    {
+        using var workspace = new TestWorkspace();
+        var writer = CreateWriter(workspace);
+
+        Assert.Throws<InvalidFileSystemRequestException>(() => writer.Rename(new FileRef("files", string.Empty), "other"));
+        Assert.Throws<InvalidFileSystemRequestException>(() => writer.Delete(new FileRef("files", string.Empty)));
+        Assert.True(Directory.Exists(workspace.RootPath));
+    }
+
+    [Fact]
+    public void Delete_RejectsSymlink()
+    {
+        using var workspace = new TestWorkspace();
+        var target = Path.Combine(workspace.RootPath, "target.txt");
+        File.WriteAllText(target, "content");
+        var link = Path.Combine(workspace.RootPath, "link.txt");
+        try
+        {
+            File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var writer = CreateWriter(workspace);
+
+        Assert.Throws<UnsupportedFileSystemObjectException>(() => writer.Delete(new FileRef("files", "link.txt")));
+        Assert.True(File.Exists(link));
+        Assert.Equal("content", File.ReadAllText(target));
+    }
+
+    [Fact]
+    public void Delete_RejectsDirectoryContainingSymlink()
+    {
+        using var workspace = new TestWorkspace();
+        var directory = Path.Combine(workspace.RootPath, "directory");
+        Directory.CreateDirectory(directory);
+        var target = Path.Combine(workspace.RootPath, "target.txt");
+        File.WriteAllText(target, "content");
+        var link = Path.Combine(directory, "link.txt");
+        try
+        {
+            File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var writer = CreateWriter(workspace);
+
+        Assert.Throws<UnsupportedFileSystemObjectException>(() => writer.Delete(new FileRef("files", "directory")));
+        Assert.True(Directory.Exists(directory));
+        Assert.True(File.Exists(link));
+        Assert.Equal("content", File.ReadAllText(target));
+    }
+
+    [Fact]
+    public async Task Mkdir_WithAntiforgeryToken_ReturnsCreatedPublicReference()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host.Client);
+
+        using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
+        {
+            parent = new { root = "files", path = "" },
+            name = "created"
+        }, token);
+        var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("files", document.RootElement.GetProperty("root").GetString());
+        Assert.Equal("created", document.RootElement.GetProperty("path").GetString());
+        Assert.True(Directory.Exists(Path.Combine(workspace.RootPath, "created")));
+    }
+
+    [Fact]
+    public async Task Mkdir_ConflictReturns409NameConflict()
+    {
+        using var workspace = new TestWorkspace();
+        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "existing"));
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host.Client);
+
+        using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
+        {
+            parent = new { root = "files", path = "" },
+            name = "existing"
+        }, token);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("name_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Mkdir_WithoutAntiforgeryDoesNotChangeFileSystem()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        using var response = await host.Client.PostAsJsonAsync("/api/fs/mkdir", new
+        {
+            parent = new { root = "files", path = "" },
+            name = "must-not-exist"
+        });
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest,
+            $"Status: {response.StatusCode}; body: {await response.Content.ReadAsStringAsync()}");
+        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "must-not-exist")));
+    }
+
+    private static FileSystemWriteService CreateWriter(TestWorkspace workspace)
+    {
+        var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteConfiguration(workspace.RootPath));
+        return new FileSystemWriteService(new PathResolver(configuration));
+    }
+
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var html = await client.GetStringAsync("/browse?root=files");
+        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
+        Assert.True(match.Success, "На странице не найден antiforgery token.");
+        return WebUtility.HtmlDecode(match.Groups["token"].Value);
+    }
+
+    private static async Task<HttpResponseMessage> SendJsonAsync(HttpClient client, string path, object payload, string token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = JsonContent.Create(payload)
+        };
+        request.Headers.Add("X-CSRF-TOKEN", token);
+        return await client.SendAsync(request);
+    }
+
+    private static TestHost CreateHost(string configPath)
+    {
+        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
+        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
+        Environment.SetEnvironmentVariable("ConfigPath", configPath);
+        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
+        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
+        Directory.CreateDirectory(keyDirectory);
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
+        try
+        {
+            return new TestHost(factory, factory.CreateClient());
+        }
+        catch
+        {
+            factory.Dispose();
+            throw;
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
+            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
+        }
+    }
+
+    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
+    {
+        public HttpClient Client { get; } = client;
+
+        public void Dispose()
+        {
+            Client.Dispose();
+            factory.Dispose();
+        }
+    }
+}

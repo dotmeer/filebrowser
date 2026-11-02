@@ -16,6 +16,9 @@
 </head>
 
 <body>
+    <form id="antiforgery-token" hidden aria-hidden="true">
+        <AntiforgeryToken />
+    </form>
     <Routes />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>

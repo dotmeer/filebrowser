@@ -63,6 +63,13 @@ h1:focus {
     margin-bottom: 1rem;
 }
 
+.browse-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
 .browse-header h1, .settings-page h1, .home-page h1 {
     margin-bottom: 0.25rem;
 }
@@ -209,11 +216,92 @@ h1:focus {
     color: #667085;
 }
 
+.file-context-menu {
+    position: fixed;
+    z-index: 20;
+    min-width: 11rem;
+    padding: 0.3rem;
+    background: #fff;
+    border: 1px solid #d0d5dd;
+    border-radius: 0.4rem;
+    box-shadow: 0 0.5rem 1rem rgb(16 24 40 / 18%);
+}
+
+.file-context-menu button {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    text-align: left;
+}
+
+.file-context-menu button:hover, .file-context-menu button:focus {
+    background: #f2f4f7;
+}
+
+.dialog-backdrop {
+    position: fixed;
+    z-index: 30;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(16 24 40 / 45%);
+}
+
+.file-dialog {
+    width: min(100%, 31rem);
+    padding: 1.25rem;
+    border-radius: 0.5rem;
+    background: #fff;
+    box-shadow: 0 1rem 2rem rgb(16 24 40 / 25%);
+}
+
+.file-dialog h2 {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
+}
+
+.file-dialog label {
+    margin-bottom: 0.4rem;
+}
+
+.dialog-hint, .dialog-warning, .dialog-error {
+    margin: 0.75rem 0;
+}
+
+.dialog-hint {
+    color: #667085;
+    font-size: 0.9rem;
+}
+
+.dialog-warning, .dialog-error {
+    color: #b42318;
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+
 .settings-page, .home-page {
     padding: 1rem 0;
 }
 
 @media (max-width: 760px) {
+    .browse-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .browse-actions {
+        justify-content: flex-start;
+    }
+
     .browse-layout {
         grid-template-columns: minmax(0, 1fr);
     }

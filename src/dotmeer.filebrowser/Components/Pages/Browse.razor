@@ -4,6 +4,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
+@inject FileSystemWriteService Writer
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
 
@@ -18,9 +19,20 @@
                 <p class="browse-selection">Выбрано: @_selection.Count</p>
             }
         </div>
-        <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
-            Обновить
-        </button>
+        <div class="browse-actions" aria-label="Действия с файлами">
+            <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog" disabled="@(_loading || _listing is null)">
+                Создать папку
+            </button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
+                Переименовать
+            </button>
+            <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
+                Удалить
+            </button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
+                Обновить
+            </button>
+        </div>
     </header>
 
     <div class="browse-layout">
@@ -91,7 +103,7 @@
                         <tbody>
                             @foreach (var entry in _listing.Entries)
                             {
-                                <tr @key="entry.Path">
+                                <tr @key="entry.Path" @oncontextmenu:preventDefault @oncontextmenu="args => OpenContextMenu(entry, args)">
                                     <td>
                                         <input class="form-check-input" type="checkbox" aria-label="Выбрать @entry.Name"
                                                checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind == "unsupported")"
@@ -127,6 +139,66 @@
             }
         </main>
     </div>
+
+    @if (_contextEntry is not null)
+    {
+        <div class="file-context-menu" role="menu" style="@($"left: {_contextX}px; top: {_contextY}px;")">
+            <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">Переименовать</button>
+            <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">Удалить</button>
+        </div>
+    }
+
+    @if (_dialog is not null)
+    {
+        <div class="dialog-backdrop">
+            <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="file-dialog-title">
+                @if (_dialog == DialogKind.Create)
+                {
+                    <h2 id="file-dialog-title">Создать папку</h2>
+                    <label for="new-folder-name">Имя новой папки</label>
+                    <input id="new-folder-name" class="form-control" @bind="_newFolderName" disabled="@_operationInProgress" />
+                    <p class="dialog-hint">Имя не может содержать путь или начинаться с <code>.filebrowser-</code>.</p>
+                }
+                else if (_dialog == DialogKind.Rename && _dialogTarget is not null)
+                {
+                    <h2 id="file-dialog-title">Переименовать «@_dialogTarget.Name»</h2>
+                    <label for="new-name">Новое имя</label>
+                    <input id="new-name" class="form-control" @bind="_newName" disabled="@_operationInProgress" />
+                    <p class="dialog-hint">Объект с таким именем не будет перезаписан.</p>
+                }
+                else if (_dialog == DialogKind.Delete && _dialogTarget is not null)
+                {
+                    <h2 id="file-dialog-title">Удалить «@_dialogTarget.Name»?</h2>
+                    <p class="dialog-warning">Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым.</p>
+                    <div class="form-check">
+                        <input id="confirm-delete" class="form-check-input" type="checkbox" @bind="_deleteConfirmed" disabled="@_operationInProgress" />
+                        <label class="form-check-label" for="confirm-delete">Я понимаю, что объект нельзя будет восстановить</label>
+                    </div>
+                }
+
+                @if (_operationError is not null)
+                {
+                    <p class="dialog-error" role="alert">@_operationError</p>
+                }
+
+                <div class="dialog-actions">
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseDialog" disabled="@_operationInProgress">Отмена</button>
+                    @if (_dialog == DialogKind.Create)
+                    {
+                        <button class="btn btn-primary" type="button" @onclick="CreateDirectoryAsync" disabled="@_operationInProgress">Создать</button>
+                    }
+                    else if (_dialog == DialogKind.Rename)
+                    {
+                        <button class="btn btn-primary" type="button" @onclick="RenameAsync" disabled="@_operationInProgress">Переименовать</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-danger" type="button" @onclick="DeleteAsync" disabled="@(!_deleteConfirmed || _operationInProgress)">Удалить</button>
+                    }
+                </div>
+            </section>
+        </div>
+    }
 </section>
 
 @code {
@@ -143,6 +215,18 @@
     private bool _loading;
     private bool _rootsLoading;
     private int _requestVersion;
+    private FileEntryDto? _contextEntry;
+    private FileEntryDto? _dialogTarget;
+    private DialogKind? _dialog;
+    private string _newFolderName = string.Empty;
+    private string _newName = string.Empty;
+    private string? _operationError;
+    private bool _deleteConfirmed;
+    private bool _operationInProgress;
+    private double _contextX;
+    private double _contextY;
+
+    private FileEntryDto? SelectedEntry => _listing?.Entries.SingleOrDefault(entry => _selection.Contains(entry.Path));
 
     protected override Task OnParametersSetAsync() => LoadCurrentAsync();
 
@@ -204,6 +288,125 @@
     }
 
     private Task RefreshAsync() => LoadCurrentAsync();
+
+    private void OpenContextMenu(FileEntryDto entry, MouseEventArgs args)
+    {
+        if (entry.Kind == "unsupported")
+        {
+            return;
+        }
+
+        _contextEntry = entry;
+        _contextX = args.ClientX;
+        _contextY = args.ClientY;
+    }
+
+    private void OpenCreateDialog()
+    {
+        _contextEntry = null;
+        _dialog = DialogKind.Create;
+        _newFolderName = string.Empty;
+        _operationError = null;
+    }
+
+    private void OpenRenameSelected()
+    {
+        if (SelectedEntry is not null)
+        {
+            OpenRename(SelectedEntry);
+        }
+    }
+
+    private void OpenRename(FileEntryDto entry)
+    {
+        _contextEntry = null;
+        _dialog = DialogKind.Rename;
+        _dialogTarget = entry;
+        _newName = entry.Name;
+        _operationError = null;
+    }
+
+    private void OpenDeleteSelected()
+    {
+        if (SelectedEntry is not null)
+        {
+            OpenDelete(SelectedEntry);
+        }
+    }
+
+    private void OpenDelete(FileEntryDto entry)
+    {
+        _contextEntry = null;
+        _dialog = DialogKind.Delete;
+        _dialogTarget = entry;
+        _deleteConfirmed = false;
+        _operationError = null;
+    }
+
+    private void CloseDialog()
+    {
+        if (_operationInProgress)
+        {
+            return;
+        }
+
+        _dialog = null;
+        _dialogTarget = null;
+        _operationError = null;
+    }
+
+    private async Task CreateDirectoryAsync()
+    {
+        if (_listing is null)
+        {
+            return;
+        }
+
+        await ExecuteMutationAsync(() => Writer.CreateDirectory(new FileRef(_listing.Root, _listing.Path), _newFolderName));
+    }
+
+    private async Task RenameAsync()
+    {
+        if (_listing is null || _dialogTarget is null)
+        {
+            return;
+        }
+
+        var source = new FileRef(_listing.Root, _dialogTarget.Path);
+        await ExecuteMutationAsync(() => Writer.Rename(source, _newName));
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_listing is null || _dialogTarget is null || !_deleteConfirmed)
+        {
+            return;
+        }
+
+        var source = new FileRef(_listing.Root, _dialogTarget.Path);
+        await ExecuteMutationAsync(() => Writer.Delete(source));
+    }
+
+    private async Task ExecuteMutationAsync(Action mutation)
+    {
+        _operationInProgress = true;
+        _operationError = null;
+        try
+        {
+            await Task.Run(mutation);
+            await LoadCurrentAsync();
+            _operationInProgress = false;
+            CloseDialog();
+        }
+        catch (Exception exception)
+        {
+            _operationError = GetSafeMutationError(exception);
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
 
     private Task NavigateToAsync(FileRef fileRef)
     {
@@ -290,5 +493,23 @@
         _ => "Не удалось загрузить каталог. Проверьте доступ и повторите попытку."
     };
 
+    private static string GetSafeMutationError(Exception exception) => exception switch
+    {
+        FileSystemNameConflictException => "Объект с таким именем уже существует.",
+        FileSystemObjectNotFoundException => "Объект больше не существует. Обновите каталог.",
+        RootUnavailableException => "Корень временно недоступен.",
+        FileSystemAccessDeniedException => "Недостаточно прав для выполнения операции.",
+        UnsupportedFileSystemObjectException => "Этот объект не поддерживается.",
+        InvalidFileSystemRequestException => "Проверьте имя и выбранный объект.",
+        _ => "Не удалось выполнить операцию. Повторите попытку."
+    };
+
     private sealed record Breadcrumb(string Name, string Path);
+
+    private enum DialogKind
+    {
+        Create,
+        Rename,
+        Delete
+    }
 }
