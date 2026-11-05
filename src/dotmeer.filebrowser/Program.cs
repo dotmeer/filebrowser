@@ -22,6 +22,7 @@ builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
 builder.Services.AddSingleton<FileSystemWriteService>();
 builder.Services.AddSingleton(taskDatabase);
+builder.Services.AddSingleton<TaskNotificationService>();
 builder.Services.AddSingleton<TaskRepository>();
 builder.Services.AddSingleton<TaskQueue>();
 builder.Services.AddSingleton<TaskDispatcher>();

@@ -19,6 +19,12 @@ public static class TaskEndpoints
                 ?? throw new FileTaskNotFoundException();
             return Results.Ok(task);
         });
+        app.MapDelete("/api/tasks/history", async (TaskRepository repository, CancellationToken cancellationToken) =>
+            {
+                var deleted = await repository.DeleteInactiveAsync(cancellationToken);
+                return Results.Ok(new HistoryClearedResponse(deleted));
+            })
+            .RequireCsrfValidation();
         app.MapPost("/api/tasks/copy", async (FileTaskRequest request, TaskDispatcher dispatcher, CancellationToken cancellationToken) =>
             {
                 var task = await dispatcher.EnqueueAsync(FileTaskType.Copy, request.Sources, request.Destination, cancellationToken);
@@ -54,3 +60,5 @@ public static class TaskEndpoints
 public sealed record FileTaskRequest(IReadOnlyList<FileRef> Sources, FileRef Destination);
 
 public sealed record TaskAcceptedResponse(Guid Id);
+
+public sealed record HistoryClearedResponse(int DeletedCount);

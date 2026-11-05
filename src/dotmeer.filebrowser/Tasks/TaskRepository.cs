@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace dotmeer.filebrowser.Tasks;
 
-public sealed class TaskRepository(TaskDatabase database)
+public sealed class TaskRepository(TaskDatabase database, TaskNotificationService? notifications = null)
 {
     public Task<FileTask> CreateQueuedAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default)
     {
@@ -52,6 +52,7 @@ public sealed class TaskRepository(TaskDatabase database)
         }
 
         transaction.Commit();
+        Notify(TaskChangeKind.Created, task.Id);
         return Task.FromResult(task);
     }
 
@@ -100,6 +101,70 @@ public sealed class TaskRepository(TaskDatabase database)
         return Task.FromResult(new TaskPage(tasks, offset, limit, hasMore));
     }
 
+    public Task<IReadOnlyList<FileTask>> GetActiveAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
+            FROM tasks
+            WHERE status IN ('queued', 'scanning', 'running')
+            ORDER BY created_at_utc ASC, id ASC;
+            """;
+        var rows = new List<TaskRow>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                rows.Add(ReadTaskRow(reader));
+            }
+        }
+
+        var tasks = rows
+            .Select(row => ToFileTask(row, GetSources(connection, row.Id), GetItems(connection, row.Id)))
+            .ToArray();
+        return Task.FromResult<IReadOnlyList<FileTask>>(tasks);
+    }
+
+    public Task<TaskPage> GetHistoryPageAsync(int offset, int limit, CancellationToken cancellationToken = default)
+    {
+        if (offset < 0 || limit is < 1 or > 50)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "Пагинация задач недопустима.");
+        }
+
+        using var connection = database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
+            FROM tasks
+            WHERE status IN ('completed', 'failed', 'interrupted')
+            ORDER BY created_at_utc DESC, id DESC
+            LIMIT $take OFFSET $offset;
+            """;
+        command.Parameters.AddWithValue("$take", limit + 1);
+        command.Parameters.AddWithValue("$offset", offset);
+        var rows = new List<TaskRow>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                rows.Add(ReadTaskRow(reader));
+            }
+        }
+
+        var tasks = rows
+            .Select(row => ToFileTask(row, GetSources(connection, row.Id), GetItems(connection, row.Id)))
+            .ToList();
+        var hasMore = tasks.Count > limit;
+        if (hasMore)
+        {
+            tasks.RemoveAt(tasks.Count - 1);
+        }
+
+        return Task.FromResult(new TaskPage(tasks, offset, limit, hasMore));
+    }
+
     public Task TransitionAsync(Guid id, FileTaskStatus nextStatus, string stage, string? error = null, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
@@ -135,6 +200,7 @@ public sealed class TaskRepository(TaskDatabase database)
         }
 
         transaction.Commit();
+        Notify(TaskChangeKind.Updated, id);
         return Task.CompletedTask;
     }
 
@@ -157,6 +223,10 @@ public sealed class TaskRepository(TaskDatabase database)
         command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(now));
         var changed = command.ExecuteNonQuery();
         transaction.Commit();
+        if (changed > 0)
+        {
+            Notify(TaskChangeKind.Updated, null);
+        }
         return Task.FromResult(changed);
     }
 
@@ -166,8 +236,28 @@ public sealed class TaskRepository(TaskDatabase database)
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM tasks WHERE id = $id AND status = 'queued';";
         command.Parameters.AddWithValue("$id", id.ToString("D"));
-        command.ExecuteNonQuery();
+        var changed = command.ExecuteNonQuery();
+        if (changed > 0)
+        {
+            Notify(TaskChangeKind.Updated, id);
+        }
         return Task.CompletedTask;
+    }
+
+    public Task<int> DeleteInactiveAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = database.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'interrupted');";
+        var deleted = command.ExecuteNonQuery();
+        transaction.Commit();
+        if (deleted > 0)
+        {
+            Notify(TaskChangeKind.HistoryCleared, null);
+        }
+        return Task.FromResult(deleted);
     }
 
     public Task<TemporaryArtifact> RegisterTemporaryArtifactAsync(Guid taskId, FileRef file, CancellationToken cancellationToken = default)
@@ -236,6 +326,7 @@ public sealed class TaskRepository(TaskDatabase database)
         command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(DateTimeOffset.UtcNow));
         command.Parameters.AddWithValue("$id", id.ToString("D"));
         command.ExecuteNonQuery();
+        Notify(TaskChangeKind.Updated, id);
         return Task.CompletedTask;
     }
 
@@ -259,8 +350,12 @@ public sealed class TaskRepository(TaskDatabase database)
         command.Parameters.AddWithValue("$sourceRoot", source.Root);
         command.Parameters.AddWithValue("$sourcePath", source.Path);
         command.ExecuteNonQuery();
+        Notify(TaskChangeKind.Updated, taskId);
         return Task.CompletedTask;
     }
+
+    private void Notify(TaskChangeKind kind, Guid? taskId) =>
+        notifications?.Publish(new TaskChangeNotification(kind, taskId));
 
     private static FileTask? GetTask(SqliteConnection connection, Guid id, SqliteTransaction? transaction = null)
     {

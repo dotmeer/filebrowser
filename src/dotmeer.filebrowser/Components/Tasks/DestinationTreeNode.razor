@@ -1,0 +1,129 @@
+@inject FileSystemReadService Reader
+
+<li class="tree-node">
+    <div class="tree-entry">
+        @if (CanExpand)
+        {
+            <button class="tree-toggle" type="button" aria-label="@(Expanded ? "Свернуть" : "Раскрыть") @Name"
+                    aria-expanded="@Expanded" disabled="@_loading" @onclick="ToggleAsync">
+                @(Expanded ? "▾" : "▸")
+            </button>
+        }
+        else
+        {
+            <span class="tree-toggle-placeholder"></span>
+        }
+
+        <button class="tree-select @(IsSelected ? "tree-select-current" : string.Empty)" type="button"
+                title="@Name" disabled="@Disabled" @onclick="SelectAsync">
+            <span aria-hidden="true">📁</span> @Name
+            @if (!Available)
+            {
+                <span class="tree-unavailable">(нет доступа)</span>
+            }
+            else if (Disabled)
+            {
+                <span class="tree-unavailable">(недоступно)</span>
+            }
+        </button>
+    </div>
+
+    @if (Expanded)
+    {
+        @if (_loading)
+        {
+            <div class="tree-message">Загрузка…</div>
+        }
+        else if (_error is not null)
+        {
+            <div class="tree-message tree-error">@_error</div>
+            <button class="tree-retry" type="button" @onclick="LoadChildrenAsync">Повторить</button>
+        }
+        else if (_children is { Count: > 0 })
+        {
+            <ul>
+                @foreach (var child in _children)
+                {
+                    <DestinationTreeNode @key="child.Path" Root="@Root" Name="@child.Name" Path="@child.Path"
+                                         Available="true" IsPathDisabled="@IsPathDisabled"
+                                         SelectedRoot="@SelectedRoot" SelectedPath="@SelectedPath" OnSelect="@OnSelect" />
+                }
+            </ul>
+        }
+    }
+</li>
+
+@code {
+    [Parameter, EditorRequired] public string Root { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public string Path { get; set; } = string.Empty;
+    [Parameter] public bool Available { get; set; } = true;
+    [Parameter] public string? SelectedRoot { get; set; }
+    [Parameter] public string? SelectedPath { get; set; }
+    [Parameter] public Func<string, string, bool>? IsPathDisabled { get; set; }
+    [Parameter] public EventCallback<FileRef> OnSelect { get; set; }
+
+    private bool Expanded { get; set; }
+    private bool _loading;
+    private string? _error;
+    private IReadOnlyList<FileEntryDto>? _children;
+    private bool CanExpand => _children is null || _children.Count > 0;
+
+    private bool Disabled => !Available || (IsPathDisabled?.Invoke(Root, Path) ?? false);
+
+    private bool IsSelected =>
+        SelectedRoot is not null
+        && SelectedRoot.Equals(Root, StringComparison.OrdinalIgnoreCase)
+        && SelectedPath is not null
+        && SelectedPath.Equals(Path, StringComparison.Ordinal);
+
+    private async Task ToggleAsync()
+    {
+        if (Expanded)
+        {
+            Expanded = false;
+            return;
+        }
+
+        Expanded = true;
+        if (_children is null && _error is null)
+        {
+            await LoadChildrenAsync();
+        }
+    }
+
+    private async Task LoadChildrenAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var listing = await Task.Run(() => Reader.List(new FileRef(Root, Path)));
+            _children = listing.Entries.Where(entry => entry.Kind == "directory").ToArray();
+        }
+        catch (Exception exception)
+        {
+            _error = exception switch
+            {
+                RootUnavailableException => "Корень временно недоступен.",
+                FileSystemObjectNotFoundException => "Каталог больше не существует.",
+                UnsupportedFileSystemObjectException => "Этот каталог не поддерживается.",
+                _ => "Не удалось загрузить подкаталоги. Проверьте доступ и повторите попытку."
+            };
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task SelectAsync()
+    {
+        if (Disabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnSelect.InvokeAsync(new FileRef(Root, Path));
+    }
+}

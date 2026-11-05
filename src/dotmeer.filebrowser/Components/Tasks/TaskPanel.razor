@@ -1,0 +1,404 @@
+@implements IAsyncDisposable
+@inject TaskRepository Repository
+@inject TaskNotificationService Notifications
+@inject TaskProgressService Progress
+@inject IJSRuntime JavaScript
+
+<section class="task-panel" aria-labelledby="task-panel-title">
+    <header class="task-panel-header">
+        <div>
+            <h2 id="task-panel-title">Задачи</h2>
+            <p class="muted">Активные задачи и история. Состояние перечитывается из SQLite.</p>
+        </div>
+        <div class="task-panel-actions">
+            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="RefreshAsync" disabled="@_loading">
+                Обновить
+            </button>
+            <button class="btn btn-outline-danger btn-sm" type="button" @onclick="OpenClearHistory"
+                    disabled="@(_loading || _clearDialog || (!_history.HasMore && _historyOffset == 0 && _history.Tasks.Count == 0))">
+                Очистить историю
+            </button>
+        </div>
+    </header>
+
+    @if (_loadError is not null)
+    {
+        <p class="task-error" role="alert">@_loadError</p>
+    }
+
+    @if (_lastDeletedCount is not null)
+    {
+        <p class="task-note" role="status">Удалено задач: @_lastDeletedCount.</p>
+    }
+
+    <h3>Активные задачи (@_active.Count)</h3>
+    @if (_active.Count == 0)
+    {
+        <p class="muted">Активных задач нет.</p>
+    }
+    else
+    {
+        <div class="task-list">
+            @foreach (var task in _active)
+            {
+                <TaskCard Task="@task" BytesPerSecond="@GetBytesPerSecond(task)" />
+            }
+        </div>
+    }
+
+    <h3>История (последние 50 с пагинацией)</h3>
+    @if (_history.Tasks.Count == 0)
+    {
+        <p class="muted">История пуста.</p>
+    }
+    else
+    {
+        <div class="task-list">
+            @foreach (var task in _history.Tasks)
+            {
+                <TaskCard Task="@task" BytesPerSecond="0" />
+            }
+        </div>
+    }
+
+    <div class="task-pagination">
+        <button class="btn btn-outline-secondary btn-sm" type="button"
+                @onclick="() => GoToHistoryPageAsync(_historyOffset - PageSize)"
+                disabled="@(_loading || _historyOffset == 0)">
+            Новее
+        </button>
+        <span>@GetHistoryRangeLabel()</span>
+        <button class="btn btn-outline-secondary btn-sm" type="button"
+                @onclick="() => GoToHistoryPageAsync(_historyOffset + PageSize)"
+                disabled="@(_loading || !_history.HasMore)">
+            Старее
+        </button>
+    </div>
+
+    @if (_clearDialog)
+    {
+        <div class="dialog-backdrop">
+            <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-history-title">
+                <h2 id="clear-history-title">Очистить историю задач?</h2>
+                <p class="dialog-warning">
+                    Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом.
+                    Активные задачи и файлы не изменяются.
+                </p>
+                <div class="form-check">
+                    <input id="confirm-clear-history" class="form-check-input" type="checkbox"
+                           @bind="_clearConfirmed" disabled="@_clearing" />
+                    <label class="form-check-label" for="confirm-clear-history">
+                        Я понимаю, что историю нельзя восстановить
+                    </label>
+                </div>
+
+                @if (_clearError is not null)
+                {
+                    <p class="dialog-error" role="alert">@_clearError</p>
+                }
+
+                <div class="dialog-actions">
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseClearDialog" disabled="@_clearing">
+                        Отмена
+                    </button>
+                    <button class="btn btn-danger" type="button" @onclick="ClearHistoryAsync"
+                            disabled="@(!_clearConfirmed || _clearing)">
+                        Очистить
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</section>
+
+@code {
+    private const int PageSize = 50;
+
+    [Parameter] public EventCallback<FileTask> OnTaskCompleted { get; set; }
+
+    private IReadOnlyList<FileTask> _active = [];
+    private TaskPage _history = new([], 0, PageSize, false);
+    private int _historyOffset;
+    private bool _loading;
+    private string? _loadError;
+    private IDisposable? _subscription;
+    private DotNetObjectReference<TaskPanel>? _selfReference;
+    private bool _jsRegistered;
+    private volatile bool _disposed;
+    private bool _refreshScheduled;
+    private int _historyResetRequested;
+    private readonly object _refreshLock = new();
+    private HashSet<Guid> _activeIds = [];
+    private bool _activeIdsInitialized;
+    private bool _clearDialog;
+    private bool _clearConfirmed;
+    private bool _clearing;
+    private string? _clearError;
+    private int? _lastDeletedCount;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_disposed)
+        {
+            _subscription ??= Notifications.Subscribe(OnTaskChanged);
+            try
+            {
+                _selfReference = DotNetObjectReference.Create(this);
+                await JavaScript.InvokeVoidAsync("fileBrowser.registerReconnectRefresh", _selfReference);
+                _jsRegistered = true;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+            {
+                // Static prerendering and a disconnected circuit do not provide JS interop.
+            }
+        }
+
+        try
+        {
+            await JavaScript.InvokeVoidAsync("fileBrowser.formatLocalTimes");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+        {
+            // Local time formatting is progressive enhancement.
+        }
+    }
+
+    private void OnTaskChanged(TaskChangeNotification notification)
+    {
+        if (notification.Kind == TaskChangeKind.HistoryCleared)
+        {
+            Interlocked.Exchange(ref _historyResetRequested, 1);
+        }
+
+        ScheduleRefresh();
+    }
+
+    private void ScheduleRefresh()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        lock (_refreshLock)
+        {
+            if (_refreshScheduled)
+            {
+                return;
+            }
+
+            _refreshScheduled = true;
+        }
+
+        try
+        {
+            _ = InvokeAsync(RefreshScheduledAsync);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
+        {
+            lock (_refreshLock)
+            {
+                _refreshScheduled = false;
+            }
+        }
+    }
+
+    private async Task RefreshScheduledAsync()
+    {
+        try
+        {
+            await LoadAsync();
+            if (!_disposed)
+            {
+                StateHasChanged();
+            }
+        }
+        catch (Exception)
+        {
+            // A lost renderer must not break task notifications or background work.
+        }
+        finally
+        {
+            lock (_refreshLock)
+            {
+                _refreshScheduled = false;
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            if (Interlocked.Exchange(ref _historyResetRequested, 0) == 1)
+            {
+                _historyOffset = 0;
+            }
+
+            IReadOnlyList<FileTask> active;
+            TaskPage history;
+            try
+            {
+                active = await Task.Run(() => Repository.GetActiveAsync());
+                history = await Task.Run(() => Repository.GetHistoryPageAsync(_historyOffset, PageSize));
+                if (history.Tasks.Count == 0 && _historyOffset > 0)
+                {
+                    _historyOffset = 0;
+                    history = await Task.Run(() => Repository.GetHistoryPageAsync(0, PageSize));
+                }
+
+                _loadError = null;
+            }
+            catch (Exception)
+            {
+                _loadError = "Не удалось прочитать состояние задач из SQLite.";
+                return;
+            }
+
+            var activeIds = active.Select(task => task.Id).ToHashSet();
+            if (_activeIdsInitialized)
+            {
+                foreach (var finishedId in _activeIds.Except(activeIds))
+                {
+                    FileTask? finished;
+                    try
+                    {
+                        finished = await Task.Run(() => Repository.GetAsync(finishedId));
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+
+                    if (finished is not null && !FileTaskStateTransitions.IsActive(finished.Status))
+                    {
+                        await OnTaskCompleted.InvokeAsync(finished);
+                    }
+                }
+            }
+
+            _activeIds = activeIds;
+            _activeIdsInitialized = true;
+            _active = active;
+            _history = history;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task RefreshAsync() => LoadAsync();
+
+    private Task GoToHistoryPageAsync(int offset)
+    {
+        _historyOffset = Math.Max(0, offset);
+        return LoadAsync();
+    }
+
+    private double GetBytesPerSecond(FileTask task) =>
+        task.Status == FileTaskStatus.Running ? Progress.GetBytesPerSecond(task.Id) : 0;
+
+    private string GetHistoryRangeLabel()
+    {
+        if (_history.Tasks.Count == 0)
+        {
+            return "Записей нет";
+        }
+
+        return _historyOffset == 0
+            ? $"1–{_history.Tasks.Count}"
+            : $"{_historyOffset + 1}–{_historyOffset + _history.Tasks.Count}";
+    }
+
+    private void OpenClearHistory()
+    {
+        _clearDialog = true;
+        _clearConfirmed = false;
+        _clearError = null;
+        _lastDeletedCount = null;
+    }
+
+    private void CloseClearDialog()
+    {
+        if (_clearing)
+        {
+            return;
+        }
+
+        _clearDialog = false;
+        _clearError = null;
+    }
+
+    private async Task ClearHistoryAsync()
+    {
+        if (!_clearConfirmed || _clearing)
+        {
+            return;
+        }
+
+        _clearing = true;
+        _clearError = null;
+        try
+        {
+            var deleted = await Task.Run(() => Repository.DeleteInactiveAsync());
+            _lastDeletedCount = deleted;
+            _clearDialog = false;
+            _clearConfirmed = false;
+            _historyOffset = 0;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            _clearError = "Не удалось очистить историю. Повторите попытку.";
+        }
+        finally
+        {
+            _clearing = false;
+        }
+    }
+
+    [JSInvokable]
+    public async Task RefreshAfterReconnect()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await LoadAsync();
+        if (!_disposed)
+        {
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _subscription?.Dispose();
+        _subscription = null;
+
+        if (_jsRegistered)
+        {
+            try
+            {
+                await JavaScript.InvokeVoidAsync("fileBrowser.unregisterReconnectRefresh");
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+            {
+                // The circuit is already gone; there is nothing left to unregister.
+            }
+        }
+
+        _selfReference?.Dispose();
+    }
+}

@@ -1,0 +1,119 @@
+<div class="dialog-backdrop">
+    <section class="file-dialog destination-dialog" role="dialog" aria-modal="true" aria-labelledby="destination-title">
+        <h2 id="destination-title">Папка назначения</h2>
+        <p class="dialog-hint">
+            @GetOperationLabel(). Текущая папка, исходные объекты и их потомки недоступны для выбора.
+        </p>
+
+        <div class="destination-tree" role="tree" aria-label="Дерево папок назначения">
+            @if (Roots.Count == 0)
+            {
+                <p class="muted">Корни не настроены.</p>
+            }
+            else
+            {
+                <ul class="directory-tree">
+                    @foreach (var root in Roots)
+                    {
+                        <DestinationTreeNode @key="root.Name" Root="@root.Name" Name="@root.Name" Path=""
+                                             Available="@root.Available" IsPathDisabled="IsDisabled"
+                                             SelectedRoot="@_selected?.Root" SelectedPath="@_selected?.Path"
+                                             OnSelect="SelectAsync" />
+                    }
+                </ul>
+            }
+        </div>
+
+        <p class="destination-selection">
+            Назначение:
+            <strong>@(_selected is null ? "не выбрана" : TaskPresentation.FormatReference(_selected))</strong>
+        </p>
+
+        @if (Error is not null)
+        {
+            <p class="dialog-error" role="alert">@Error</p>
+        }
+
+        <div class="dialog-actions">
+            <button class="btn btn-outline-secondary" type="button" @onclick="CancelAsync" disabled="@Busy">
+                Отмена
+            </button>
+            <button class="btn btn-primary" type="button" @onclick="ConfirmAsync"
+                    disabled="@(_selected is null || Busy)">
+                @GetConfirmLabel()
+            </button>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RootDto> Roots { get; set; } = [];
+    [Parameter, EditorRequired] public FileTaskType TaskType { get; set; }
+    [Parameter, EditorRequired] public FileRef Current { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<FileRef> Sources { get; set; } = [];
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<FileRef> OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private FileRef? _selected;
+
+    private string GetOperationLabel() => TaskType == FileTaskType.Move ? "Перемещение" : "Копирование";
+
+    private string GetConfirmLabel() => TaskType == FileTaskType.Move ? "Переместить сюда" : "Копировать сюда";
+
+    private bool IsDisabled(string root, string path)
+    {
+        if (SameReference(Current, root, path))
+        {
+            return true;
+        }
+
+        foreach (var source in Sources)
+        {
+            if (!source.Root.Equals(root, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (source.Path.Equals(path, StringComparison.Ordinal) || IsWithin(path, source.Path))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SameReference(FileRef reference, string root, string path) =>
+        reference.Root.Equals(root, StringComparison.OrdinalIgnoreCase)
+        && reference.Path.Equals(path, StringComparison.Ordinal);
+
+    private static bool IsWithin(string candidate, string ancestor)
+    {
+        if (string.IsNullOrEmpty(ancestor))
+        {
+            return candidate.Length > 0;
+        }
+
+        return candidate.Length > ancestor.Length
+            && candidate.StartsWith(ancestor, StringComparison.Ordinal)
+            && candidate[ancestor.Length] == '/';
+    }
+
+    private Task SelectAsync(FileRef fileRef)
+    {
+        if (IsDisabled(fileRef.Root, fileRef.Path))
+        {
+            return Task.CompletedTask;
+        }
+
+        _selected = fileRef;
+        return Task.CompletedTask;
+    }
+
+    private Task ConfirmAsync() =>
+        _selected is null || Busy ? Task.CompletedTask : OnConfirm.InvokeAsync(_selected);
+
+    private Task CancelAsync() => Busy ? Task.CompletedTask : OnCancel.InvokeAsync();
+}

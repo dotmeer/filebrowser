@@ -328,3 +328,255 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+.task-panel {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: #fff;
+    border: 1px solid #e2e5e9;
+    border-radius: 0.5rem;
+}
+
+.task-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.task-panel-header h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.2rem;
+}
+
+.task-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.task-panel h3 {
+    margin: 1.1rem 0 0.5rem;
+    font-size: 1rem;
+}
+
+.task-list {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.task-card {
+    padding: 0.75rem;
+    border: 1px solid #e2e5e9;
+    border-left: 0.25rem solid #98a2b3;
+    border-radius: 0.4rem;
+    background: #fcfcfd;
+}
+
+.task-card.task-status-active {
+    border-left-color: #175cd3;
+}
+
+.task-card.task-status-completed {
+    border-left-color: #067647;
+}
+
+.task-card.task-status-failed {
+    border-left-color: #b42318;
+}
+
+.task-card.task-status-interrupted {
+    border-left-color: #b54708;
+}
+
+.task-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.task-status {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    background: #f2f4f7;
+    color: #344054;
+}
+
+.task-status-active {
+    background: #eff8ff;
+    color: #175cd3;
+}
+
+.task-status-completed {
+    background: #ecfdf3;
+    color: #067647;
+}
+
+.task-status-failed {
+    background: #fef3f2;
+    color: #b42318;
+}
+
+.task-status-interrupted {
+    background: #fffaeb;
+    color: #b54708;
+}
+
+.task-route {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.5rem 0;
+    color: #475467;
+    font-size: 0.9rem;
+}
+
+.task-route code,
+.task-items code {
+    overflow-wrap: anywhere;
+}
+
+.task-note {
+    margin: 0.4rem 0;
+    color: #475467;
+    font-size: 0.9rem;
+}
+
+.task-progress {
+    height: 1.1rem;
+    margin: 0.5rem 0;
+    font-size: 0.75rem;
+}
+
+.task-progress-unknown {
+    background-color: #84adff;
+}
+
+.task-counters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    color: #475467;
+    font-size: 0.85rem;
+}
+
+.task-error {
+    margin: 0.4rem 0 0;
+    color: #b42318;
+    font-size: 0.88rem;
+    overflow-wrap: anywhere;
+}
+
+.task-items {
+    margin-top: 0.5rem;
+    font-size: 0.88rem;
+}
+
+.task-items summary {
+    cursor: pointer;
+    color: #175cd3;
+}
+
+.task-items ul {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+}
+
+.task-items li {
+    margin-bottom: 0.3rem;
+    overflow-wrap: anywhere;
+}
+
+.task-item-status {
+    display: inline-block;
+    min-width: 6.5rem;
+    font-weight: 600;
+}
+
+.task-item-completed {
+    color: #067647;
+}
+
+.task-item-failed {
+    color: #b42318;
+}
+
+.task-item-not-processed {
+    color: #b54708;
+}
+
+.task-item-pending {
+    color: #667085;
+}
+
+.task-item-count {
+    margin-left: 0.4rem;
+    color: #667085;
+}
+
+.task-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    color: #475467;
+    font-size: 0.9rem;
+}
+
+.destination-dialog {
+    width: min(100%, 38rem);
+}
+
+.destination-tree {
+    max-height: 20rem;
+    overflow: auto;
+    padding: 0.5rem;
+    border: 1px solid #e2e5e9;
+    border-radius: 0.4rem;
+    background: #fcfcfd;
+}
+
+.tree-select {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 0;
+    background: transparent;
+    color: #1d2939;
+    padding: 0.3rem 0.2rem;
+    text-align: left;
+}
+
+.tree-select:hover:not(:disabled) {
+    color: #175cd3;
+    text-decoration: underline;
+}
+
+.tree-select:disabled {
+    color: #98a2b3;
+    cursor: not-allowed;
+}
+
+.tree-select-current {
+    color: #175cd3;
+    font-weight: 600;
+}
+
+.destination-selection {
+    margin: 0.75rem 0 0;
+}
+
+@media (max-width: 760px) {
+    .task-panel-header {
+        flex-direction: column;
+    }
+}

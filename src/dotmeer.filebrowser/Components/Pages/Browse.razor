@@ -5,6 +5,7 @@
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
 @inject FileSystemWriteService Writer
+@inject TaskDispatcher Dispatcher
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
 
@@ -26,6 +27,12 @@
             <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
                 Переименовать
             </button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected" disabled="@(!CanStartTask || _loading)">
+                Копировать
+            </button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
+                Переместить
+            </button>
             <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
                 Удалить
             </button>
@@ -34,6 +41,11 @@
             </button>
         </div>
     </header>
+
+    @if (_taskStatus is not null)
+    {
+        <p class="task-note" role="status">@_taskStatus</p>
+    }
 
     <div class="browse-layout">
         <aside class="directory-sidebar" aria-label="Дерево каталогов">
@@ -144,6 +156,8 @@
     {
         <div class="file-context-menu" role="menu" style="@($"left: {_contextX}px; top: {_contextY}px;")">
             <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">Переименовать</button>
+            <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">Копировать</button>
+            <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">Переместить</button>
             <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">Удалить</button>
         </div>
     }
@@ -199,6 +213,16 @@
             </section>
         </div>
     }
+
+    @if (_taskType is not null && _listing is not null)
+    {
+        <DestinationPicker Roots="@_roots" TaskType="@_taskType.Value"
+                           Current="@(new FileRef(_listing.Root, _listing.Path))"
+                           Sources="@_taskSources" Busy="@_taskBusy" Error="@_taskError"
+                           OnConfirm="EnqueueTaskAsync" OnCancel="CloseTaskDialog" />
+    }
+
+    <TaskPanel OnTaskCompleted="HandleTaskCompletedAsync" />
 </section>
 
 @code {
@@ -225,8 +249,21 @@
     private bool _operationInProgress;
     private double _contextX;
     private double _contextY;
+    private FileTaskType? _taskType;
+    private IReadOnlyList<FileRef> _taskSources = [];
+    private bool _taskBusy;
+    private string? _taskError;
+    private string? _taskStatus;
 
-    private FileEntryDto? SelectedEntry => _listing?.Entries.SingleOrDefault(entry => _selection.Contains(entry.Path));
+    private IReadOnlyList<FileEntryDto> SelectedEntries =>
+        _listing is null
+            ? []
+            : _listing.Entries.Where(entry => _selection.Contains(entry.Path)).ToArray();
+
+    private FileEntryDto? SelectedEntry =>
+        SelectedEntries is [var entry] ? entry : null;
+
+    private bool CanStartTask => SelectedEntries.Count > 0;
 
     protected override Task OnParametersSetAsync() => LoadCurrentAsync();
 
@@ -353,6 +390,75 @@
         _dialog = null;
         _dialogTarget = null;
         _operationError = null;
+    }
+
+    private void OpenCopySelected() => OpenTaskDialog(FileTaskType.Copy, SelectedEntries);
+
+    private void OpenMoveSelected() => OpenTaskDialog(FileTaskType.Move, SelectedEntries);
+
+    private void OpenCopy(FileEntryDto entry) => OpenTaskDialog(FileTaskType.Copy, [entry]);
+
+    private void OpenMove(FileEntryDto entry) => OpenTaskDialog(FileTaskType.Move, [entry]);
+
+    private void OpenTaskDialog(FileTaskType type, IReadOnlyList<FileEntryDto> entries)
+    {
+        if (_listing is null || entries.Count == 0)
+        {
+            return;
+        }
+
+        _contextEntry = null;
+        _taskType = type;
+        _taskSources = entries.Select(entry => new FileRef(_listing.Root, entry.Path)).ToArray();
+        _taskError = null;
+        _taskBusy = false;
+        _taskStatus = null;
+    }
+
+    private void CloseTaskDialog()
+    {
+        if (_taskBusy)
+        {
+            return;
+        }
+
+        _taskType = null;
+        _taskSources = [];
+        _taskError = null;
+    }
+
+    private async Task EnqueueTaskAsync(FileRef destination)
+    {
+        if (_taskType is null || _taskSources.Count == 0)
+        {
+            return;
+        }
+
+        var type = _taskType.Value;
+        var sources = _taskSources;
+        _taskBusy = true;
+        _taskError = null;
+        try
+        {
+            await Task.Run(async () => await Dispatcher.EnqueueAsync(type, sources, destination));
+            _taskStatus = "Задача поставлена в очередь.";
+            _taskType = null;
+            _taskSources = [];
+        }
+        catch (Exception exception)
+        {
+            _taskError = GetSafeTaskError(exception);
+        }
+        finally
+        {
+            _taskBusy = false;
+        }
+    }
+
+    private Task HandleTaskCompletedAsync(FileTask task)
+    {
+        _ = task;
+        return LoadCurrentAsync();
     }
 
     private async Task CreateDirectoryAsync()
@@ -502,6 +608,15 @@
         UnsupportedFileSystemObjectException => "Этот объект не поддерживается.",
         InvalidFileSystemRequestException => "Проверьте имя и выбранный объект.",
         _ => "Не удалось выполнить операцию. Повторите попытку."
+    };
+
+    private static string GetSafeTaskError(Exception exception) => exception switch
+    {
+        FileTaskQueueFullException => "Очередь задач заполнена. Дождитесь завершения текущих задач.",
+        InvalidFileSystemRequestException => "Проверьте выбранные объекты и папку назначения.",
+        FileSystemResolutionException => "Не удалось открыть выбранный объект или папку назначения.",
+        ArgumentException => "Проверьте выбранные объекты и папку назначения.",
+        _ => "Не удалось поставить задачу. Повторите попытку."
     };
 
     private sealed record Breadcrumb(string Name, string Path);
