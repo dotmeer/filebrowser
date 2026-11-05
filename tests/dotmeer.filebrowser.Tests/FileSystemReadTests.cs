@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -75,8 +76,9 @@ public sealed class FileSystemReadTests
         var response = await client.GetAsync("/api/fs/list?root=files");
         var listing = await response.Content.ReadFromJsonAsync<ListingResponse>();
 
-        Assert.Equal("unsupported", Assert.Single(listing!.Entries).Kind);
-        Assert.Equal("link", listing.Entries[0].Path);
+        var linkEntry = Assert.Single(listing!.Entries, entry => entry.Name == "link");
+        Assert.Equal("unsupported", linkEntry.Kind);
+        Assert.Equal("link", linkEntry.Path);
     }
 
     [Fact]
@@ -109,6 +111,44 @@ public sealed class FileSystemReadTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("invalid_request", json.RootElement.GetProperty("code").GetString());
         Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("traceId").GetString()));
+    }
+
+    [Fact]
+    public async Task GetList_TemporaryArtifactPathReturnsBadRequestWithoutExposingIt()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, ".filebrowser-temp"), "temporary");
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/api/fs/list?root=files&path=.filebrowser-temp");
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_request", json.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain("temporary", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ApiErrors_InProduction_KeepProblemDetailsContract()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, ".filebrowser-temp"), "temporary");
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath), environment: "Production");
+
+        var missing = await host.Client.GetAsync("/api/fs/list?root=files&path=absent");
+        var missingBody = await missing.Content.ReadAsStringAsync();
+        using var missingJson = JsonDocument.Parse(missingBody);
+        var hidden = await host.Client.GetAsync("/api/fs/list?root=files&path=.filebrowser-temp");
+        var hiddenBody = await hidden.Content.ReadAsStringAsync();
+        using var hiddenJson = JsonDocument.Parse(hiddenBody);
+
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal("application/problem+json", missing.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("not_found", missingJson.RootElement.GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
+        Assert.Equal("application/problem+json", hidden.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("invalid_request", hiddenJson.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain(workspace.RootPath, missingBody + hiddenBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -173,7 +213,7 @@ public sealed class FileSystemReadTests
         Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static TestHost CreateHost(string configPath)
+    private static TestHost CreateHost(string configPath, string environment = "Development")
     {
         var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
         var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
@@ -182,8 +222,11 @@ public sealed class FileSystemReadTests
         var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
         Directory.CreateDirectory(keyDirectory);
         var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(environment);
             builder.ConfigureServices(services => services.AddDataProtection()
-                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
+                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory)));
+        });
         try
         {
             var client = factory.CreateClient();

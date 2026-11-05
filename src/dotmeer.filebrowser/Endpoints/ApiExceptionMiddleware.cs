@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Antiforgery;
 using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Tasks;
 
 namespace dotmeer.filebrowser.Endpoints;
 
@@ -22,6 +23,10 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
                 FileSystemNameConflictException => (StatusCodes.Status409Conflict, "name_conflict", "Конфликт имени", "Объект с таким именем уже существует."),
                 FileSystemAccessDeniedException => (StatusCodes.Status403Forbidden, "access_denied", "Нет доступа", "Недостаточно прав для выполнения операции."),
                 AntiforgeryRequestRejectedException or AntiforgeryValidationException => (StatusCodes.Status400BadRequest, "antiforgery_validation_failed", "Запрос отклонён", "Не удалось подтвердить защитный токен запроса."),
+                FileTaskNotFoundException => (StatusCodes.Status404NotFound, "task_not_found", "Задача не найдена", "Запрошенная задача не найдена."),
+                FileTaskQueueFullException => (StatusCodes.Status429TooManyRequests, "task_queue_full", "Очередь заполнена", "Очередь задач заполнена. Повторите попытку позже."),
+                ArgumentOutOfRangeException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте параметры запроса."),
+                ArgumentException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте параметры запроса."),
                 UnsupportedFileSystemObjectException => (StatusCodes.Status422UnprocessableEntity, "unsupported_object", "Объект не поддерживается", "Этот тип файловой системы не поддерживается."),
                 InvalidFileSystemRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте root и относительный path."),
                 FileSystemResolutionException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте root и относительный path."),

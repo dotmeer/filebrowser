@@ -29,6 +29,28 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
+    public void PublicServices_RejectDirectAccessToTemporaryArtifacts()
+    {
+        using var workspace = new TestWorkspace();
+        var temporaryPath = Path.Combine(workspace.RootPath, ".filebrowser-temp");
+        File.WriteAllText(temporaryPath, "temporary");
+        var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteConfiguration(workspace.RootPath));
+        var resolver = new PathResolver(configuration);
+        var reader = new FileSystemReadService(configuration, resolver);
+        var writer = new FileSystemWriteService(resolver);
+
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            reader.List(new FileRef("files", ".filebrowser-temp")));
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            writer.Rename(new FileRef("files", ".filebrowser-temp"), "renamed"));
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            writer.Delete(new FileRef("files", ".filebrowser-temp")));
+
+        Assert.True(File.Exists(temporaryPath));
+        Assert.Equal("temporary", File.ReadAllText(temporaryPath));
+    }
+
+    [Fact]
     public void Rename_RefusesExistingDestinationWithoutOverwritingIt()
     {
         using var workspace = new TestWorkspace();

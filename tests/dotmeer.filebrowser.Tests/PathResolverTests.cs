@@ -29,6 +29,21 @@ public class PathResolverTests
             resolver.ResolveExisting(new FileRef("files", "../root-other/document.txt")));
     }
 
+    [Theory]
+    [InlineData(".filebrowser-private")]
+    [InlineData("folder/.filebrowser-private")]
+    public void ResolveExisting_RejectsTemporaryArtifactComponents(string path)
+    {
+        using var workspace = new TestWorkspace();
+        var physicalPath = Path.Combine(workspace.RootPath, path.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(physicalPath)!);
+        File.WriteAllText(physicalPath, "temporary");
+        var resolver = CreateResolver(workspace);
+
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            resolver.ResolveExisting(new FileRef("files", path)));
+    }
+
     [Fact]
     public void ResolveExisting_ResolvesConfiguredRoot()
     {

@@ -4,6 +4,8 @@ namespace dotmeer.filebrowser.FileSystem;
 
 public sealed class PathResolver
 {
+    private const string TemporaryArtifactPrefix = ".filebrowser-";
+
     private readonly FileBrowserConfiguration _configuration;
 
     public PathResolver(FileBrowserConfiguration configuration)
@@ -11,11 +13,24 @@ public sealed class PathResolver
         _configuration = configuration;
     }
 
-    public ResolvedPath ResolveExisting(FileRef fileRef)
+    public ResolvedPath ResolveExisting(FileRef fileRef) => ResolveExisting(fileRef, allowTemporaryArtifacts: false);
+
+    /// <summary>
+    /// Resolves a path that belongs to a registered temporary artifact.
+    /// Used only by startup cleanup; public operations must use <see cref="ResolveExisting(FileRef)"/>.
+    /// </summary>
+    internal ResolvedPath ResolveExistingTemporaryArtifact(FileRef fileRef) => ResolveExisting(fileRef, allowTemporaryArtifacts: true);
+
+    private ResolvedPath ResolveExisting(FileRef fileRef, bool allowTemporaryArtifacts)
     {
         ArgumentNullException.ThrowIfNull(fileRef);
         var root = GetRoot(fileRef.Root);
         var segments = ValidateRelativePath(fileRef.Path);
+        if (!allowTemporaryArtifacts && segments.Any(IsTemporaryArtifactName))
+        {
+            throw new InvalidFileSystemRequestException("Служебные объекты недоступны через публичные операции.");
+        }
+
         EnsureRootIsAvailable(root);
 
         var currentPath = root.PhysicalPath;
@@ -68,7 +83,7 @@ public sealed class PathResolver
         if (string.IsNullOrWhiteSpace(name)
             || name is "." or ".."
             || name.IndexOfAny(['/', '\\', '\0']) >= 0
-            || name.StartsWith(".filebrowser-", StringComparison.Ordinal))
+            || IsTemporaryArtifactName(name))
         {
             throw new InvalidFileSystemRequestException("Имя объекта недопустимо.");
         }
@@ -104,6 +119,9 @@ public sealed class PathResolver
 
         return segments;
     }
+
+    private static bool IsTemporaryArtifactName(string name) =>
+        name.StartsWith(TemporaryArtifactPrefix, StringComparison.Ordinal);
 
     private static void EnsureRootIsAvailable(ConfiguredRoot root)
     {
