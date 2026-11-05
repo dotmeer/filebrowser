@@ -33,6 +33,14 @@
             <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
                 Переместить
             </button>
+            @if (SelectedFileDownloadUrl is not null)
+            {
+                <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>Скачать</a>
+            }
+            else
+            {
+                <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">Скачать</a>
+            }
             <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
                 Удалить
             </button>
@@ -155,6 +163,10 @@
     @if (_contextEntry is not null)
     {
         <div class="file-context-menu" role="menu" style="@($"left: {_contextX}px; top: {_contextY}px;")">
+            @if (_contextEntry.Kind == "file")
+            {
+                <a class="context-menu-link" href="@GetDownloadUrl(_contextEntry)" download role="menuitem">Скачать</a>
+            }
             <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">Переименовать</button>
             <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">Копировать</button>
             <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">Переместить</button>
@@ -264,6 +276,19 @@
         SelectedEntries is [var entry] ? entry : null;
 
     private bool CanStartTask => SelectedEntries.Count > 0;
+
+    private string? SelectedFileDownloadUrl =>
+        SelectedEntry is { Kind: "file" } entry ? GetDownloadUrl(entry) : null;
+
+    private string GetDownloadUrl(FileEntryDto entry)
+    {
+        var query = new Dictionary<string, string?>
+        {
+            ["root"] = _listing!.Root,
+            ["path"] = entry.Path
+        };
+        return QueryHelpers.AddQueryString("/api/fs/download", query);
+    }
 
     protected override Task OnParametersSetAsync() => LoadCurrentAsync();
 

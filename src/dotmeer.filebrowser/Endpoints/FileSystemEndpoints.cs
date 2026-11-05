@@ -10,6 +10,15 @@ public static class FileSystemEndpoints
         app.MapGet("/api/fs/roots", (FileSystemReadService reader) => Results.Ok(reader.GetRoots()));
         app.MapGet("/api/fs/list", (string? root, string? path, FileSystemReadService reader) =>
             Results.Ok(reader.List(new FileRef(root ?? string.Empty, path ?? string.Empty))));
+        app.MapGet("/api/fs/download", (string? root, string? path, FileSystemReadService reader) =>
+        {
+            var file = reader.OpenFile(new FileRef(root ?? string.Empty, path ?? string.Empty));
+            return Results.File(
+                file.Stream,
+                contentType: "application/octet-stream",
+                fileDownloadName: file.Name,
+                enableRangeProcessing: true);
+        });
 
         app.MapPost("/api/fs/mkdir", (MkdirRequest request, FileSystemWriteService writer) =>
                 Results.Ok(writer.CreateDirectory(request.Parent, request.Name)))

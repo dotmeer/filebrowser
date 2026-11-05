@@ -227,17 +227,22 @@ h1:focus {
     box-shadow: 0 0.5rem 1rem rgb(16 24 40 / 18%);
 }
 
-.file-context-menu button {
+.file-context-menu button,
+.file-context-menu .context-menu-link {
     display: block;
     width: 100%;
     padding: 0.45rem 0.6rem;
     border: 0;
     border-radius: 0.25rem;
     background: transparent;
+    color: inherit;
     text-align: left;
+    text-decoration: none;
+    cursor: pointer;
 }
 
-.file-context-menu button:hover, .file-context-menu button:focus {
+.file-context-menu button:hover, .file-context-menu button:focus,
+.file-context-menu .context-menu-link:hover, .file-context-menu .context-menu-link:focus {
     background: #f2f4f7;
 }
 

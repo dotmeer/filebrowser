@@ -70,6 +70,38 @@ public sealed class FileSystemReadService
         return new DirectoryListingDto(resolved.Root, resolved.RelativePath, ordered);
     }
 
+    public ResolvedFile OpenFile(FileRef fileRef)
+    {
+        var resolved = _pathResolver.ResolveExisting(fileRef);
+        if (resolved.IsDirectory)
+        {
+            throw new InvalidFileSystemRequestException("Скачивание поддерживается только для файлов.");
+        }
+
+        try
+        {
+            var stream = new FileStream(resolved.PhysicalPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var name = resolved.RelativePath[(resolved.RelativePath.LastIndexOf('/') + 1)..];
+            return new ResolvedFile(name, stream);
+        }
+        catch (FileNotFoundException exception)
+        {
+            throw new FileSystemObjectNotFoundException("Запрошенный объект не существует.", exception);
+        }
+        catch (DirectoryNotFoundException exception)
+        {
+            throw new FileSystemObjectNotFoundException("Запрошенный объект не существует.", exception);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new FileSystemAccessDeniedException("Недостаточно прав для чтения файла.", exception);
+        }
+        catch (IOException exception)
+        {
+            throw new FileSystemOperationException("Не удалось открыть файл.", exception);
+        }
+    }
+
     private bool IsAvailable(string rootName)
     {
         try
@@ -89,6 +121,8 @@ public sealed class FileSystemReadService
 }
 
 public sealed record RootDto(string Name, bool Available);
+
+public sealed record ResolvedFile(string Name, FileStream Stream);
 
 public sealed record DirectoryListingDto(string Root, string Path, IReadOnlyList<FileEntryDto> Entries);
 
