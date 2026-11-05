@@ -1,0 +1,511 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using dotmeer.filebrowser.Configuration;
+using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Tasks;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace dotmeer.filebrowser.Tests;
+
+public sealed class MoveTaskExecutorTests
+{
+    [Fact]
+    public async Task Execute_MovesFileAndDirectoryWithinSameFileSystem()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "file content");
+        var sourceDirectory = Path.Combine(workspace.RootPath, "album");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(Path.Combine(sourceDirectory, "empty"));
+        File.WriteAllText(Path.Combine(sourceDirectory, "track.txt"), "track content");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "note.txt"), new FileRef("source", "album")],
+            new FileRef("destination", "inbox"));
+
+        await executor.ExecuteAsync(task, CancellationToken.None);
+        var running = await repository.GetAsync(task.Id);
+
+        Assert.NotNull(running);
+        Assert.Equal(FileTaskStatus.Running, running.Status);
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+        Assert.False(Directory.Exists(sourceDirectory));
+        Assert.Equal("file content", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
+        Assert.Equal("track content", File.ReadAllText(Path.Combine(destinationDirectory, "album", "track.txt")));
+        Assert.True(Directory.Exists(Path.Combine(destinationDirectory, "album", "empty")));
+        Assert.Equal(running.BytesTotal, running.BytesDone);
+        Assert.Equal(running.ItemsTotal, running.ItemsDone);
+        Assert.All(running.Items, item => Assert.Equal("completed", item.Status));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Execute_ConflictLeavesSourceAndDestinationUnchanged()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "source");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        File.WriteAllText(Path.Combine(destinationDirectory, "note.txt"), "existing");
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var scanned = await repository.GetAsync(task.Id);
+
+        Assert.Contains("name_conflict", exception.SafeMessage);
+        Assert.Equal("source", File.ReadAllText(Path.Combine(workspace.RootPath, "note.txt")));
+        Assert.Equal("existing", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
+        Assert.NotNull(scanned);
+        Assert.Equal(FileTaskStatus.Scanning, scanned.Status);
+        Assert.Equal("failed", Assert.Single(scanned.Items).Status);
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Execute_RejectsDestinationInsideSourceDirectoryBeforeMoving()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        var sourceDirectory = Path.Combine(workspace.RootPath, "source-directory");
+        Directory.CreateDirectory(Path.Combine(sourceDirectory, "nested"));
+        File.WriteAllText(Path.Combine(sourceDirectory, "note.txt"), "content");
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "source-directory")],
+            new FileRef("source", "source-directory/nested"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+
+        Assert.Contains("внутри источника", exception.SafeMessage);
+        Assert.True(File.Exists(Path.Combine(sourceDirectory, "note.txt")));
+        Assert.False(Directory.Exists(Path.Combine(sourceDirectory, "nested", "source-directory")));
+    }
+
+    [Fact]
+    public async Task Execute_CollectsPreflightErrorsAndDoesNotMoveAnything()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "first.txt"), "first");
+        var other = Path.Combine(workspace.RootPath, "other");
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, "second.txt"), "second");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        File.WriteAllText(Path.Combine(destinationDirectory, "first.txt"), "existing");
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "first.txt"), new FileRef("source", "other/second.txt")],
+            new FileRef("destination", "inbox"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+
+        Assert.Contains("name_conflict", exception.SafeMessage);
+        Assert.Contains("одной родительской", exception.SafeMessage);
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "first.txt")));
+        Assert.True(File.Exists(Path.Combine(other, "second.txt")));
+        Assert.False(File.Exists(Path.Combine(destinationDirectory, "second.txt")));
+        Assert.Equal("existing", File.ReadAllText(Path.Combine(destinationDirectory, "first.txt")));
+    }
+
+    [Fact]
+    public async Task Execute_StopsAtFirstFailureAndMarksRemainingItemsNotProcessed()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        foreach (var name in new[] { "a.txt", "b.txt", "c.txt" })
+        {
+            File.WriteAllText(Path.Combine(workspace.RootPath, name), name);
+        }
+
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new SelectiveFailureEngine(resolver, repository, new TaskProgressService(), "b.txt"));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "a.txt"), new FileRef("source", "b.txt"), new FileRef("source", "c.txt")],
+            new FileRef("destination", "inbox"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var running = await repository.GetAsync(task.Id);
+
+        Assert.Contains("ошибка перемещения", exception.SafeMessage);
+        Assert.True(File.Exists(Path.Combine(destinationDirectory, "a.txt")));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "a.txt")));
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "b.txt")));
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "c.txt")));
+        Assert.False(File.Exists(Path.Combine(destinationDirectory, "b.txt")));
+        Assert.False(File.Exists(Path.Combine(destinationDirectory, "c.txt")));
+        Assert.NotNull(running);
+        Assert.Equal(["completed", "failed", "not_processed"], running.Items.Select(item => item.Status));
+    }
+
+    [Fact]
+    public async Task Execute_CrossDeviceCopyFailureDoesNotDeleteSourceAndCleansArtifact()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "content");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FailingCopyEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+
+        Assert.Contains("ошибка перемещения", exception.SafeMessage);
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+        Assert.False(File.Exists(Path.Combine(destinationDirectory, "note.txt")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Execute_CrossDeviceFallbackPublishesThenDeletesSource()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "content");
+        var sourceDirectory = Path.Combine(workspace.RootPath, "album");
+        Directory.CreateDirectory(Path.Combine(sourceDirectory, "empty"));
+        File.WriteAllText(Path.Combine(sourceDirectory, "track.txt"), "track");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new CrossDeviceEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "note.txt"), new FileRef("source", "album")],
+            new FileRef("destination", "inbox"));
+
+        await executor.ExecuteAsync(task, CancellationToken.None);
+        var running = await repository.GetAsync(task.Id);
+
+        Assert.NotNull(running);
+        Assert.Equal(FileTaskStatus.Running, running.Status);
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+        Assert.False(Directory.Exists(sourceDirectory));
+        Assert.Equal("content", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
+        Assert.Equal("track", File.ReadAllText(Path.Combine(destinationDirectory, "album", "track.txt")));
+        Assert.All(running.Items, item => Assert.Equal("completed", item.Status));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Execute_DeletionFailureKeepsPublishedDestinationAndReportsPartialResult()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "content");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FailingDeleteEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var running = await repository.GetAsync(task.Id);
+
+        Assert.Contains("назначение создано", exception.SafeMessage);
+        Assert.Contains("мог сохраниться", exception.SafeMessage);
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+        Assert.Equal("content", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
+        Assert.NotNull(running);
+        Assert.Equal("failed", Assert.Single(running.Items).Status);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task MoveEndpoint_QueuesAndCompletesMoveWithAntiforgery()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "moved by worker");
+        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        var token = await GetAntiforgeryTokenAsync(host.Client);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
+        {
+            Content = JsonContent.Create(new
+            {
+                sources = new[] { new { root = "files", path = "source.txt" } },
+                destination = new { root = "files", path = "target" }
+            })
+        };
+        request.Headers.Add("X-CSRF-TOKEN", token);
+        using var response = await host.Client.SendAsync(request);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var taskId = body.RootElement.GetProperty("id").GetGuid();
+        var completed = await WaitForStatusAsync(host.Services.GetRequiredService<TaskRepository>(), taskId, FileTaskStatus.Completed);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal($"/api/tasks/{taskId:D}", response.Headers.Location?.ToString());
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "source.txt")));
+        Assert.Equal("moved by worker", File.ReadAllText(Path.Combine(workspace.RootPath, "target", "source.txt")));
+        Assert.Equal("completed", Assert.Single(completed.Items).Status);
+    }
+
+    [Fact]
+    public async Task MoveEndpoint_RejectsSourcesFromDifferentParentsWithBadRequest()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "first.txt"), "first");
+        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "other"));
+        File.WriteAllText(Path.Combine(workspace.RootPath, "other", "second.txt"), "second");
+        var target = Path.Combine(workspace.RootPath, "target");
+        Directory.CreateDirectory(target);
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        var token = await GetAntiforgeryTokenAsync(host.Client);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
+        {
+            Content = JsonContent.Create(new
+            {
+                sources = new[]
+                {
+                    new { root = "files", path = "first.txt" },
+                    new { root = "files", path = "other/second.txt" }
+                },
+                destination = new { root = "files", path = "target" }
+            })
+        };
+        request.Headers.Add("X-CSRF-TOKEN", token);
+        using var response = await host.Client.SendAsync(request);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_request", body.RootElement.GetProperty("code").GetString());
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "first.txt")));
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "other", "second.txt")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+    }
+
+    [Fact]
+    public async Task MoveEndpoint_WithoutAntiforgeryDoesNotMoveSource()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "keep");
+        var target = Path.Combine(workspace.RootPath, "target");
+        Directory.CreateDirectory(target);
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+
+        using var response = await host.Client.PostAsJsonAsync("/api/tasks/move", new
+        {
+            sources = new[] { new { root = "files", path = "source.txt" } },
+            destination = new { root = "files", path = "target" }
+        });
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("antiforgery_validation_failed", body.RootElement.GetProperty("code").GetString());
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "source.txt")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+    }
+
+    [Fact]
+    public async Task Execute_RealCrossDeviceMove_WhenSecondFileSystemIsProvided()
+    {
+        var secondaryRoot = Environment.GetEnvironmentVariable("FILEBROWSER_CROSS_DEVICE_ROOT");
+        if (string.IsNullOrWhiteSpace(secondaryRoot)
+            || !Path.IsPathFullyQualified(secondaryRoot)
+            || !Directory.Exists(secondaryRoot))
+        {
+            return;
+        }
+
+        var destinationRoot = Path.Combine(secondaryRoot, $"filebrowser-cross-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(destinationRoot);
+        try
+        {
+            using var workspace = new TestWorkspace();
+            var probeSource = Path.Combine(workspace.RootPath, "probe.txt");
+            var probeDestination = Path.Combine(destinationRoot, "probe.txt");
+            File.WriteAllText(probeSource, "probe");
+            try
+            {
+                Directory.Move(probeSource, probeDestination);
+                File.Delete(probeDestination);
+                return;
+            }
+            catch (IOException exception) when (exception.HResult == 18)
+            {
+                // Cross-device confirmed.
+            }
+            catch
+            {
+                return;
+            }
+
+            File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "cross-device");
+            var sourceDirectory = Path.Combine(workspace.RootPath, "album");
+            Directory.CreateDirectory(Path.Combine(sourceDirectory, "empty"));
+            File.WriteAllText(Path.Combine(sourceDirectory, "track.txt"), "track");
+            var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+            var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+            var task = await CreateScanningTaskAsync(repository,
+                [new FileRef("source", "note.txt"), new FileRef("source", "album")],
+                new FileRef("destination", ""));
+
+            await executor.ExecuteAsync(task, CancellationToken.None);
+
+            Assert.False(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+            Assert.False(Directory.Exists(sourceDirectory));
+            Assert.Equal("cross-device", File.ReadAllText(Path.Combine(destinationRoot, "note.txt")));
+            Assert.Equal("track", File.ReadAllText(Path.Combine(destinationRoot, "album", "track.txt")));
+            Assert.True(Directory.Exists(Path.Combine(destinationRoot, "album", "empty")));
+            Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        }
+        finally
+        {
+            Directory.Delete(destinationRoot, recursive: true);
+        }
+    }
+
+    private static async Task<FileTask> CreateScanningTaskAsync(TaskRepository repository, IReadOnlyList<FileRef> sources, FileRef destination)
+    {
+        var task = await repository.CreateQueuedAsync(FileTaskType.Move, sources, destination);
+        await repository.TransitionAsync(task.Id, FileTaskStatus.Scanning, "scanning");
+        return (await repository.GetAsync(task.Id))!;
+    }
+
+    private static (TaskRepository Repository, PathResolver Resolver) CreateRepositoryAndResolver(TestWorkspace workspace, string destinationRoot)
+    {
+        var configPath = workspace.WriteRawConfiguration($"""
+            workers: 1
+            roots:
+              - name: source
+                path: '{workspace.RootPath}'
+              - name: destination
+                path: '{destinationRoot}'
+            """);
+        var database = new TaskDatabase(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
+        database.Migrate();
+        return (new TaskRepository(database), new PathResolver(FileBrowserConfigurationLoader.Load(configPath)));
+    }
+
+    private static string CreateDestinationRoot(TestWorkspace workspace)
+    {
+        var path = Path.Combine(Path.GetDirectoryName(workspace.RootPath)!, "destination");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static async Task<FileTask> WaitForStatusAsync(TaskRepository repository, Guid taskId, FileTaskStatus expected)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!timeout.IsCancellationRequested)
+        {
+            var task = await repository.GetAsync(taskId, timeout.Token);
+            if (task?.Status == expected)
+            {
+                return task;
+            }
+            await Task.Delay(25, timeout.Token);
+        }
+
+        throw new TimeoutException($"Задача {taskId} не достигла состояния {expected}.");
+    }
+
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var html = await client.GetStringAsync("/browse?root=files");
+        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
+        Assert.True(match.Success, "На странице не найден antiforgery token.");
+        return WebUtility.HtmlDecode(match.Groups["token"].Value);
+    }
+
+    private static MoveHost CreateHost(string configPath)
+    {
+        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
+        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
+        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
+        Environment.SetEnvironmentVariable("ConfigPath", configPath);
+        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(Path.GetDirectoryName(configPath)!, "app.db"));
+        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
+        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
+        Directory.CreateDirectory(keyDirectory);
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
+        try
+        {
+            return new MoveHost(factory, factory.CreateClient());
+        }
+        catch
+        {
+            factory.Dispose();
+            throw;
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
+            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
+            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
+        }
+    }
+
+    private sealed class MoveHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
+    {
+        public IServiceProvider Services => factory.Services;
+
+        public HttpClient Client { get; } = client;
+
+        public void Dispose()
+        {
+            Client.Dispose();
+            factory.Dispose();
+        }
+    }
+
+    private class CrossDeviceEngine(PathResolver resolver, TaskRepository repository, TaskProgressService progress)
+        : FileTransferEngine(resolver, repository, progress)
+    {
+        internal override bool TryRenameEntry(FileTransferPlanEntry entry) => false;
+    }
+
+    private sealed class FailingCopyEngine(PathResolver resolver, TaskRepository repository, TaskProgressService progress)
+        : CrossDeviceEngine(resolver, repository, progress)
+    {
+        internal override Task CopyEntryAsync(FileTransferPlanEntry entry, string destinationPath, TransferProgress progress, CancellationToken cancellationToken) =>
+            Task.FromException(new IOException("copy failed"));
+    }
+
+    private sealed class FailingDeleteEngine(PathResolver resolver, TaskRepository repository, TaskProgressService progress)
+        : CrossDeviceEngine(resolver, repository, progress)
+    {
+        internal override void DeleteSource(ResolvedPath sourcePath) =>
+            throw new UnauthorizedAccessException("delete failed");
+    }
+
+    private sealed class SelectiveFailureEngine(
+        PathResolver resolver,
+        TaskRepository repository,
+        TaskProgressService progress,
+        string failingPath) : FileTransferEngine(resolver, repository, progress)
+    {
+        internal override bool TryRenameEntry(FileTransferPlanEntry entry)
+        {
+            if (entry.Source.Path == failingPath)
+            {
+                throw new IOException("rename failed");
+            }
+
+            return base.TryRenameEntry(entry);
+        }
+    }
+}

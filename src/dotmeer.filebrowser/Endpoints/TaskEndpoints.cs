@@ -19,9 +19,15 @@ public static class TaskEndpoints
                 ?? throw new FileTaskNotFoundException();
             return Results.Ok(task);
         });
-        app.MapPost("/api/tasks/copy", async (CopyTaskRequest request, TaskDispatcher dispatcher, CancellationToken cancellationToken) =>
+        app.MapPost("/api/tasks/copy", async (FileTaskRequest request, TaskDispatcher dispatcher, CancellationToken cancellationToken) =>
             {
                 var task = await dispatcher.EnqueueAsync(FileTaskType.Copy, request.Sources, request.Destination, cancellationToken);
+                return Results.Accepted($"/api/tasks/{task.Id:D}", new TaskAcceptedResponse(task.Id));
+            })
+            .RequireCsrfValidation();
+        app.MapPost("/api/tasks/move", async (FileTaskRequest request, TaskDispatcher dispatcher, CancellationToken cancellationToken) =>
+            {
+                var task = await dispatcher.EnqueueAsync(FileTaskType.Move, request.Sources, request.Destination, cancellationToken);
                 return Results.Accepted($"/api/tasks/{task.Id:D}", new TaskAcceptedResponse(task.Id));
             })
             .RequireCsrfValidation();
@@ -45,6 +51,6 @@ public static class TaskEndpoints
             });
 }
 
-public sealed record CopyTaskRequest(IReadOnlyList<FileRef> Sources, FileRef Destination);
+public sealed record FileTaskRequest(IReadOnlyList<FileRef> Sources, FileRef Destination);
 
 public sealed record TaskAcceptedResponse(Guid Id);

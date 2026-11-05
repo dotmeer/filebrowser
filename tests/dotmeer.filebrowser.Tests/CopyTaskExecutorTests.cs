@@ -246,7 +246,7 @@ public sealed class CopyTaskExecutorTests
             """);
         var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
         var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
-        var executor = new CopyTaskExecutor(resolver, repository, new TaskProgressService());
+        var executor = new CopyTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source.txt")], new FileRef("destination", "inbox"));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
@@ -391,7 +391,8 @@ public sealed class CopyTaskExecutorTests
             """);
         var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
         var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
-        return (repository, new CopyTaskExecutor(resolver, repository, new TaskProgressService()));
+        var engine = new FileTransferEngine(resolver, repository, new TaskProgressService());
+        return (repository, new CopyTaskExecutor(engine));
     }
 
     private static async Task<FileTask> CreateScanningTaskAsync(TaskRepository repository, IReadOnlyList<FileRef> sources, FileRef destination)

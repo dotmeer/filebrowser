@@ -27,7 +27,9 @@ builder.Services.AddSingleton<TaskQueue>();
 builder.Services.AddSingleton<TaskDispatcher>();
 builder.Services.AddSingleton<TemporaryArtifactCleanupService>();
 builder.Services.AddSingleton<TaskProgressService>();
+builder.Services.AddSingleton<FileTransferEngine>();
 builder.Services.AddSingleton<CopyTaskExecutor>();
+builder.Services.AddSingleton<MoveTaskExecutor>();
 builder.Services.AddSingleton<IFileTaskExecutor, FileTaskExecutor>();
 builder.Services.AddHostedService<TaskExecutorHostedService>();
 
