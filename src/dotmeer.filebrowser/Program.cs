@@ -1,22 +1,63 @@
+using System.Diagnostics;
 using dotmeer.filebrowser.Components;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.Endpoints;
 using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Observability;
 using dotmeer.filebrowser.Tasks;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.Configure(options =>
+{
+    options.ActivityTrackingOptions =
+        ActivityTrackingOptions.TraceId
+        | ActivityTrackingOptions.SpanId
+        | ActivityTrackingOptions.ParentId;
+});
+
+using var startupLoggerFactory = LoggerFactory.Create(logging =>
+{
+    logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+    logging.Configure(options =>
+    {
+        options.ActivityTrackingOptions =
+            ActivityTrackingOptions.TraceId
+            | ActivityTrackingOptions.SpanId
+            | ActivityTrackingOptions.ParentId;
+    });
+    logging.AddConsole();
+});
+var startupLogger = startupLoggerFactory.CreateLogger("dotmeer.filebrowser.Startup");
+
 var configPath = builder.Configuration["ConfigPath"] ?? "/config/config.yaml";
-var fileBrowserConfiguration = FileBrowserConfigurationLoader.Load(configPath);
-var databasePath = builder.Configuration["DatabasePath"]
-    ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "app.db");
-var taskDatabase = new TaskDatabase(databasePath);
-taskDatabase.Migrate();
+FileBrowserConfiguration fileBrowserConfiguration;
+TaskDatabase taskDatabase;
+try
+{
+    fileBrowserConfiguration = FileBrowserConfigurationLoader.Load(configPath);
+    var databasePath = builder.Configuration["DatabasePath"]
+        ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "app.db");
+    taskDatabase = new TaskDatabase(databasePath);
+    taskDatabase.Migrate();
+    startupLogger.LogInformation(
+        "Приложение инициализировано: сервис={ServiceName}, версия={ServiceVersion}, workers={Workers}, корни={RootNames}",
+        FileBrowserTelemetry.ServiceName,
+        FileBrowserTelemetry.ServiceVersion,
+        fileBrowserConfiguration.Workers,
+        string.Join(',', fileBrowserConfiguration.Roots.Select(root => root.Name)));
+}
+catch (Exception exception)
+{
+    startupLogger.LogCritical(exception, "Не удалось загрузить конфигурацию или инициализировать SQLite.");
+    throw;
+}
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+builder.Services.AddFileBrowserObservability(builder.Configuration);
 builder.Services.AddSingleton(fileBrowserConfiguration);
 builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
@@ -24,6 +65,7 @@ builder.Services.AddSingleton<FileSystemWriteService>();
 builder.Services.AddSingleton(taskDatabase);
 builder.Services.AddSingleton<TaskNotificationService>();
 builder.Services.AddSingleton<TaskRepository>();
+builder.Services.AddSingleton<TaskMetrics>();
 builder.Services.AddSingleton<TaskQueue>();
 builder.Services.AddSingleton<TaskDispatcher>();
 builder.Services.AddSingleton<TemporaryArtifactCleanupService>();

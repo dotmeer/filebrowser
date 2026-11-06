@@ -2,7 +2,7 @@ using dotmeer.filebrowser.FileSystem;
 
 namespace dotmeer.filebrowser.Tasks;
 
-public class FileTransferEngine(PathResolver pathResolver, TaskRepository repository, TaskProgressService runtimeProgress)
+public class FileTransferEngine(PathResolver pathResolver, TaskRepository repository, TaskProgressService runtimeProgress, TaskMetrics? metrics = null)
 {
     private const int BufferSize = 128 * 1024;
 
@@ -124,7 +124,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
     {
         await repository.UpdateProgressAsync(task.Id, 0, plan.TotalBytes, 0, plan.TotalItems, cancellationToken);
         await repository.TransitionAsync(task.Id, FileTaskStatus.Running, "running", cancellationToken: cancellationToken);
-        return new TransferProgress(repository, runtimeProgress, task.Id, plan.TotalBytes, plan.TotalItems);
+        return new TransferProgress(repository, runtimeProgress, task.Id, task.Type, plan.TotalBytes, plan.TotalItems, metrics);
     }
 
     internal async Task<TransferArtifact> CreateTemporaryArtifactAsync(FileTask task, ResolvedPath destination, string sourceName, CancellationToken cancellationToken)
@@ -415,8 +415,10 @@ internal sealed class TransferProgress(
     TaskRepository repository,
     TaskProgressService runtimeProgress,
     Guid taskId,
+    FileTaskType taskType,
     long bytesTotal,
-    long itemsTotal)
+    long itemsTotal,
+    TaskMetrics? metrics)
 {
     private long _bytesDone;
     private long _itemsDone;
@@ -426,12 +428,14 @@ internal sealed class TransferProgress(
     {
         _bytesDone += bytes;
         runtimeProgress.Report(taskId, _bytesDone);
+        metrics?.TaskBytesProcessed(taskType, bytes);
         await ReportAsync(force: false, cancellationToken);
     }
 
     public async Task ItemCompletedAsync(CancellationToken cancellationToken)
     {
         _itemsDone++;
+        metrics?.TaskItemsProcessed(taskType, 1);
         await ReportAsync(force: false, cancellationToken);
     }
 
@@ -439,6 +443,8 @@ internal sealed class TransferProgress(
     {
         _bytesDone += bytes;
         _itemsDone += items;
+        metrics?.TaskBytesProcessed(taskType, bytes);
+        metrics?.TaskItemsProcessed(taskType, items);
         await ReportAsync(force: true, cancellationToken);
     }
 

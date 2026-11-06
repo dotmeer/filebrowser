@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Observability;
 using Microsoft.Extensions.Hosting;
 
 namespace dotmeer.filebrowser.Tasks;
@@ -19,7 +21,11 @@ public sealed class TaskQueue
     public ValueTask<Guid> DequeueAsync(CancellationToken cancellationToken) => _channel.Reader.ReadAsync(cancellationToken);
 }
 
-public sealed class TaskDispatcher(TaskRepository repository, TaskQueue queue)
+public sealed class TaskDispatcher(
+    TaskRepository repository,
+    TaskQueue queue,
+    TaskMetrics? metrics = null,
+    ILogger<TaskDispatcher>? logger = null)
 {
     public async Task<FileTask> EnqueueAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default)
     {
@@ -45,9 +51,18 @@ public sealed class TaskDispatcher(TaskRepository repository, TaskQueue queue)
         var task = await repository.CreateQueuedAsync(type, normalizedSources, destination, cancellationToken);
         if (queue.TryEnqueue(task.Id))
         {
+            metrics?.TaskEnqueued(task.Type);
+            logger?.LogInformation(
+                "Поставлена задача {TaskId}: тип={TaskType}, источников={SourceCount}, корень назначения={DestinationRoot}",
+                task.Id,
+                task.Type,
+                task.Sources.Count,
+                task.Destination.Root);
             return task;
         }
 
+        metrics?.TaskRejected(task.Type);
+        logger?.LogWarning("Очередь задач заполнена; задача {TaskId} удалена из хранилища", task.Id);
         await repository.DeleteAsync(task.Id, cancellationToken);
         throw new FileTaskQueueFullException();
     }
@@ -122,13 +137,15 @@ public sealed class TaskExecutorHostedService(
     TemporaryArtifactCleanupService artifactCleanup,
     TaskProgressService runtimeProgress,
     FileBrowserConfiguration configuration,
-    ILogger<TaskExecutorHostedService> logger) : BackgroundService
+    ILogger<TaskExecutorHostedService> logger,
+    TaskMetrics? metrics = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var interrupted = await repository.InterruptActiveTasksAsync(stoppingToken);
         if (interrupted > 0)
         {
+            metrics?.TasksInterrupted(interrupted);
             logger.LogWarning("Восстановлено прерванных задач: {TaskCount}", interrupted);
         }
         await artifactCleanup.CleanupAsync(stoppingToken);
@@ -142,28 +159,28 @@ public sealed class TaskExecutorHostedService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            Guid taskId;
+            Guid taskId = Guid.Empty;
+            FileTask? task = null;
+            DateTimeOffset executionStartedUtc = DateTimeOffset.UtcNow;
+            Activity? activity = null;
             try
             {
                 taskId = await queue.DequeueAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            try
-            {
-                var queuedTask = await repository.GetAsync(taskId, stoppingToken);
-                if (queuedTask?.Status != FileTaskStatus.Queued)
+                metrics?.TaskDequeued();
+                task = await repository.GetAsync(taskId, stoppingToken);
+                if (task?.Status != FileTaskStatus.Queued)
                 {
                     continue;
                 }
 
+                metrics?.TaskStarted(task.Type);
+                executionStartedUtc = DateTimeOffset.UtcNow;
+                activity = StartTaskActivity(task);
+
                 await repository.TransitionAsync(taskId, FileTaskStatus.Scanning, "scanning", cancellationToken: stoppingToken);
-                var scanningTask = await repository.GetAsync(taskId, stoppingToken)
+                task = await repository.GetAsync(taskId, stoppingToken)
                     ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
-                await executor.ExecuteAsync(scanningTask, stoppingToken);
+                await executor.ExecuteAsync(task, stoppingToken);
                 var executedTask = await repository.GetAsync(taskId, stoppingToken)
                     ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
                 if (executedTask.Status == FileTaskStatus.Scanning)
@@ -179,6 +196,8 @@ public sealed class TaskExecutorHostedService(
                 }
 
                 await repository.TransitionAsync(taskId, FileTaskStatus.Completed, "completed", cancellationToken: stoppingToken);
+                activity?.SetTag("filebrowser.task.status", "completed");
+                metrics?.TaskCompleted(executedTask.Type, DateTimeOffset.UtcNow - executionStartedUtc);
                 runtimeProgress.Clear(taskId);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -187,9 +206,17 @@ public sealed class TaskExecutorHostedService(
             }
             catch (Exception exception)
             {
+                activity?.SetStatus(ActivityStatusCode.Error);
+                activity?.SetTag("filebrowser.task.status", "failed");
+                activity?.SetTag("error.type", exception.GetType().Name);
+                metrics?.TaskFailed(task?.Type, DateTimeOffset.UtcNow - executionStartedUtc);
                 logger.LogWarning(exception, "Исполнитель задачи {TaskId} завершился ошибкой", taskId);
                 await FailTaskSafelyAsync(taskId, exception, stoppingToken);
                 runtimeProgress.Clear(taskId);
+            }
+            finally
+            {
+                activity?.Dispose();
             }
         }
     }
@@ -211,6 +238,18 @@ public sealed class TaskExecutorHostedService(
         {
             logger.LogError(persistenceException, "Не удалось сохранить ошибку задачи {TaskId}", taskId);
         }
+    }
+
+    private static Activity? StartTaskActivity(FileTask task)
+    {
+        var activity = FileBrowserTelemetry.ActivitySource.StartActivity(
+            "filebrowser.task.execute",
+            ActivityKind.Internal);
+        activity?.SetTag("filebrowser.task.id", task.Id.ToString("D"));
+        activity?.SetTag("filebrowser.task.type", task.Type.ToString().ToLowerInvariant());
+        activity?.SetTag("filebrowser.task.source_count", task.Sources.Count);
+        activity?.SetTag("filebrowser.task.destination_root", task.Destination.Root);
+        return activity;
     }
 }
 

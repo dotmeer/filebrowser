@@ -2,15 +2,18 @@
 
 ## Вы находитесь здесь
 
-- Текущая итерация: I10 — Download.
+- Текущая итерация: I11 — Наблюдаемость, документация, приёмка.
 - Статус: завершена.
-- Последняя завершённая итерация: I10.
-- Следующая разрешённая работа: I11 — Наблюдаемость, документация, приёмка.
+- Последняя завершённая итерация: I11.
+- Следующая разрешённая работа: в рамках MVP не запланирована; новые функции
+  добавляются только через обновление SPEC и отдельную итерацию.
 - Блокеры: не выявлены.
-- Последнее обновление: 2026-11-05 — I10 реализована и проверена сборкой,
-  107 тестами на Windows, 107 тестами в Linux-контейнере, Docker build,
-  compose config и контейнерным smoke-тестом download (полный ответ, Range,
-  отказ для папки). Интерактивные браузерные сценарии не прокликивались.
+- Последнее обновление: 2026-11-06 — I11 реализована и проверена сборкой,
+  109 тестами на Windows, 109 тестами в Linux-контейнере, Docker build,
+  compose config, контейнерным smoke-тестом основных операций, рестартом,
+  download Range, очисткой истории и проверкой работы не от root. Интерактивные
+  браузерные клики и подключение к внешнему OTel Collector пользователя не
+  выполнялись.
 
 I10 подтверждена `GET /api/fs/download` для одного обычного файла:
 потоковая передача без буферизации в памяти, `application/octet-stream`,
@@ -52,59 +55,60 @@ resolver/validator для всех запретов (папка/корень →
 | I08 | Исполнитель move | Завершена |
 | I09 | UI задач и уведомления | Завершена |
 | I10 | Download | Завершена |
-| I11 | Наблюдаемость, документация, приёмка | Не начата |
+| I11 | Наблюдаемость, документация, приёмка | Завершена |
 
-## Текущая итерация: I10 — Download
+## Текущая итерация: I11 — Наблюдаемость, документация, приёмка
 
 ### Цель
 
-Реализовать скачивание одного обычного файла через HTTP с Range и корректными
-заголовками, потоковой передачей без буферизации в памяти и UI-кнопкой,
-доступной только при выборе ровно одного файла, согласно SPEC §12.1, §16
-и промпту I10 в SPEC §23.
+Закрыть приёмку MVP: добавить структурированные логи и корреляцию по
+`traceId`, базовую OpenTelemetry-инструментацию, spans задач, метрики очереди
+и выполнения, опциональный OTLP exporter через стандартные `OTEL_*`
+переменные, актуализировать Docker/README и провести контейнерные приёмочные
+проверки без добавления roadmap-функций.
 
 ### Сделано
 
-- `FileSystemReadService.OpenFile(FileRef)` проходит общий resolver/validator
-  (`ResolveExisting`), отклоняет каталоги (`400/invalid_request`) и открывает
-  `FileStream` (`FileMode.Open`, `FileAccess.Read`, `FileShare.Read`),
-  переводя ошибки ОС в публичные исключения (`404`, `403`,
-  `FileSystemOperationException`); возвращает `ResolvedFile` с именем
-  (последний сегмент публичного пути) и потоком.
-- `GET /api/fs/download?root=...&path=...` отдаёт файл через
-  `Results.File(stream, "application/octet-stream", fileDownloadName, enableRangeProcessing: true)`:
-  потоковая передача без буферизации, `Content-Disposition: attachment` с
-  корректным именем (не-ASCII — через `filename*=UTF-8''...`), `Content-Length`,
-  Range → `206` с `Content-Range`, `Accept-Ranges: bytes`. GET не требует
-  antiforgery (endpoint без CSRF-метаданных).
-- Ошибки разрешения пути до открытия потока возвращаются как ProblemDetails
-  через `ApiExceptionMiddleware` (папка/корень → `400/invalid_request`,
-  отсутствующий объект/корень → `404/not_found`, symlink →
-  `422/unsupported_object`, `.filebrowser-*` и traversal → `400`).
-- Ошибка чтения после начала ответа не подменяется ProblemDetails:
-  middleware перевыбрасывает исключение при `Response.HasStarted` (соединение
-  обрывается; поведение покрыто тестом на уровне middleware).
-- UI: кнопка «Скачать» в шапке `/browse` доступна только при выборе ровно
-  одного файла (`SelectedEntry is { Kind: "file" }`), иначе отображается
-  заблокированной; пункт «Скачать» добавлен в контекстное меню файла; оба
-  варианта — обычные ссылки на `/api/fs/download` (навигация браузера, не
-  серверный вызов собственного HTTP API).
-- README обновлён: раздел «Скачивание через HTTP API», статус I10,
-  ограничения и Docker-проверка.
+- добавлены OpenTelemetry-пакеты и регистрация `AddFileBrowserObservability`:
+  resource `service.name=dotmeer.filebrowser`, tracing ASP.NET Core/HttpClient,
+  custom `ActivitySource`, metrics meter, ASP.NET Core/HttpClient/runtime
+  instrumentation; OTLP exporter подключается только при заданном endpoint,
+  без endpoint приложение работает без внешних observability-зависимостей;
+  поддержан `OTEL_SDK_DISABLED=true`;
+- JSON console logs с UTC-временем и scopes; `ActivityTrackingOptions`
+  добавляет trace/span/parent id в логи; startup-лог фиксирует сервис,
+  версию, `workers` и публичные имена корней, но не физические пути;
+- `ApiExceptionMiddleware` теперь использует `Activity.Current.TraceId` при
+  наличии trace, добавляет scope с `TraceId`/методом/путём, логирует 5xx с
+  исключением, а ожидаемые 4xx — предупреждением без stack trace;
+  `ProblemDetails.traceId` соответствует логам;
+- `TaskExecutorHostedService` создаёт span `filebrowser.task.execute` с
+  публичными тегами задачи и состоянием `completed`/`failed`; `TaskDispatcher`
+  и worker-ы публикуют метрики очереди, старта, завершения, отказа,
+  длительности, обработанных байтов и объектов;
+- `TaskMetrics` покрывает `enqueued`, `rejected`, `started`, `finished`,
+  `queue_depth`, `duration`, `bytes_processed`, `items_processed`;
+- добавлены `ObservabilityTests`: проверка метрик и интеграционная проверка
+  span-а/метрик при выполнении задачи; общий suite вырос до 109 тестов;
+- README дополнен разделами наблюдаемости, OTLP-инструкции для внешнего
+  Collector, ручной приёмкой, ограничениями symlink/cross-device/сторонних
+  изменений, backup `/config`; Compose содержит закомментированный пример
+  `OTEL_*` без изменения default runtime-конфигурации.
 
 ### Осталось
 
-- Интерактивная проверка кнопки в браузере не выполнялась: среда сессии не
-  предоставляет браузер с WebSocket-сессией Blazor. SSR `/browse` содержит
-  кнопку «Скачать»; пункт контекстного меню рендерится только по JS-событию
-  и в SSR отсутствует (штатно).
+- Интерактивные браузерные клики по UI не выполнялись: среда не предоставляет
+  браузер с WebSocket-сессией Blazor. SSR/HTTP-сценарии и контейнерный smoke
+  проверены;
+- Подключение к конкретному внешнему OTel Collector пользователя не
+  проверялось. Проверены работа без exporter, условная регистрация exporter по
+  `OTEL_*` и наличие инструкции; фактическая доставка в Collector зависит от
+  адресации/протокола конкретного развёртывания.
 
 ### Следующее конкретное действие
 
-I11 по промпту SPEC §23: наблюдаемость (структурированные логи, traceId,
-базовая OpenTelemetry-инструментация, spans задач, метрики очереди),
-инструкция подключения к внешнему OTel Collector через `OTEL_*` переменные,
-полная README, Docker/Compose-инструкции и приёмочные проверки MVP.
+Пользователь создаёт commit завершения MVP. Любая функция после MVP — только
+после обновления SPEC и отдельной итерации.
 
 ## Подтверждённые возможности
 
@@ -158,11 +162,21 @@ I11 по промпту SPEC §23: наблюдаемость (структур�
   (ProblemDetails не пишется поверх начатого ответа);
 - кнопка «Скачать» в `/browse` доступна только при выборе ровно одного файла;
   ссылка ведёт на `/api/fs/download` и открывается навигацией браузера;
-- тестовый проект работает: `dotnet test` — 107/107 на Windows, включая
-  download (содержимое, Range, заголовки, отказы, middleware-рестарт потока);
-- Docker image `filemanager-i10` собрался и прошёл контейнерный smoke test с
-  полным download, Range (`206`, `Content-Range: bytes 0-4/33`), отказом для
-  папки и `app.db`; `docker compose config` проходит.
+- логи приложения пишутся в JSON console с UTC-временем и scopes; startup,
+  постановка задач, файловые/API-ошибки доступны в контейнерном stdout;
+- `ProblemDetails.traceId` коррелирует с JSON-логами; в smoke-тесте traceId
+  отказа download папки найден в логах контейнера;
+- OpenTelemetry tracing включает ASP.NET Core/HttpClient и span
+  `filebrowser.task.execute`; metrics meter публикует счётчики задач,
+  queue depth, длительность, байты и элементы; runtime/ASP.NET/HttpClient
+  метрики включены; OTLP exporter включается только через `OTEL_*` endpoint;
+- тестовый проект работает: `dotnet test` — 109/109 на Windows и 109/109 в
+  Linux-контейнере, включая observability, download и symlink; cross-device
+  ветки покрыты unit-тестами, а реальный cross-device повторно подтверждён в
+  I08, не в I11;
+- Docker image `filemanager-i11` собран и прошёл контейнерный smoke test:
+  health/list/mkdir/rename/copy/move/conflict/restart/download/Range/history
+  clear/app.db/non-root/traceId в логах; `docker compose config` проходит.
 - Контейнер пишет ключи Data Protection в непостоянный каталог пользователя и
   предупреждает, что они не зашифрованы. При пересоздании контейнера открытые
   browser sessions могут потребовать обновления страницы; постоянное хранение
@@ -174,14 +188,15 @@ I11 по промпту SPEC §23: наблюдаемость (структур�
 
 | Проверка | Результат | Примечание |
 |---|---|---|
-| dotnet build | Пройдено | 2026-11-05; 0 ошибок, 0 предупреждений; SDK 10.0.401 |
-| dotnet test | Пройдено | 2026-11-05; 107/107 на Windows: download (содержимое, Content-Disposition, UTF-8 имя, закрытый/открытый Range, отказы для папки/корня/traversal/backslash/.filebrowser-*/отсутствующего объекта/неизвестного корня/symlink, middleware-рестарт после начала ответа) + предыдущие suite |
-| dotnet test (Linux, `sdk:10.0`) | Пройдено | 2026-11-05; 107/107, полный suite в контейнере |
-| docker compose config | Пройдена | 2026-11-05; exit 0 |
-| docker build -t filemanager-i10 . | Пройдена | 2026-11-05; image `sha256:d25b5434...`, runtime user UID 1654 |
-| Container smoke test | Пройден | 2026-11-05; `/healthz` 200, полный download 200 (`application/octet-stream`, `Content-Disposition`, `Content-Length: 33`), Range `206` (`Content-Range: bytes 0-4/33`, тело 5 байт), папка → `400/invalid_request` ProblemDetails с `traceId`, `app.db` создан, uid 1654 |
-| SSR `/browse` | Пройден | 2026-11-05; кнопка «Скачать» присутствует в SSR-разметке |
-| Интерактивный UI в браузере | Не запускался | Нет браузерного инструмента с WebSocket-сессией; SSR-проверка выполнена, пункт контекстного меню рендерится только по JS-событию |
+| dotnet build | Пройдено | 2026-11-06; 0 ошибок, 0 предупреждений; SDK 10.0.401 |
+| dotnet test | Пройдено | 2026-11-06; 109/109 на Windows, включая observability, download, symlink и предыдущие suite |
+| dotnet test (Linux, `sdk:10.0`) | Пройдено | 2026-11-06; 109/109, полный suite в Linux-контейнере; реальный cross-device с `FILEBROWSER_CROSS_DEVICE_ROOT` не перепроверялся в I11 (подтверждён в I08) |
+| docker compose config | Пройдена | 2026-11-06; exit 0 после добавления OTEL-комментария в compose |
+| docker build -t filemanager-i11 . | Пройдена | 2026-11-06; manifest list `sha256:43593bac...`, runtime user UID 1654 |
+| Container smoke test | Пройден | 2026-11-06; `/healthz` 200, roots/list, mkdir/rename, copy completed, move completed, copy-conflict `failed/name_conflict`, restart с сохранением задачи, полный download 200, Range `206` (`bytes 0-4/*`, тело 5 байт), папка → `400/invalid_request` ProblemDetails, traceId найден в JSON-логах, delete file/folder, history clear `deletedCount>=3`, `app.db` создан |
+| Работа не от root | Пройдена | 2026-11-06; `docker exec ... id -u` → `1654` |
+| Интерактивный UI в браузере | Не запускался | Нет браузерного инструмента с WebSocket-сессией; HTTP/SSR и контейнерный smoke выполнены |
+| Подключение к внешнему OTel Collector | Не запускалось | Collector пользователя недоступен в сессии; проверены работа без exporter и условная регистрация по `OTEL_*` |
 
 Результаты: пройдено / не пройдено / не запускалось.
 
@@ -190,22 +205,22 @@ I11 по промпту SPEC §23: наблюдаемость (структур�
 
 ## Среда и ограничения
 
-Обновлено рабочей сессией I09 (2026-11-05):
+Обновлено рабочей сессией I11 (2026-11-06):
 
 - ОС разработки: Windows (win32), оболочка PowerShell;
 - Версия dotnet SDK: 10.0.401 (установлен; зафиксирован в global.json,
   roll-forward `latestFeature`);
 - Docker Desktop Linux engine доступен (29.9.2); `docker build -t
-  filemanager-i10 .`, `docker compose config` и контейнерный smoke test
-  download (полный ответ, Range 206, отказ для папки) прошли 2026-11-05;
-  вывод `docker build` в PowerShell помечается NativeCommandError из-за
-  stderr-прогресса, фактический результат сборки — успешен (образ создан,
-  `docker image inspect` подтверждён);
+  filemanager-i11 .`, `docker compose config` и расширенный контейнерный
+  smoke test основных операций прошли 2026-11-06; образ запускается от UID
+  `1654`;
 - Linux filesystem сценарии проверены в контейнере
-  `mcr.microsoft.com/dotnet/sdk:10.0`: полный suite 107/107, включая
-  symlink-тесты и сценарии с реальными временными каталогами;
+  `mcr.microsoft.com/dotnet/sdk:10.0`: полный suite 109/109, включая
+  symlink-тесты и реальные временные каталоги; cross-device unit-ветки прошли,
+  а реальный cross-device сценарий подтверждён ранее, в I08;
 - интерактивный браузерный UI в этой сессии недоступен: нет инструмента с
-  живой WebSocket-сессией Blazor. Выполнены SSR/HTTP smoke-проверки;
+  живой WebSocket-сессией Blazor. Выполнены SSR/HTTP и контейнерные smoke
+  проверки;
 - Команды запуска: `dotnet run --project src/dotmeer.filebrowser`;
   docker: `docker build -t filemanager .`, `docker compose up --build`
   (см. README);
@@ -213,11 +228,11 @@ I11 по промпту SPEC §23: наблюдаемость (структур�
   YAML-конфигурации и временных каталогах; тестовый WebApplicationFactory
   хранит Data Protection keys внутри временного каталога теста.
 
-Известно из консультации:
+Известно из консультации и зафиксировано в I11:
 - OTEL observability-стек (Collector) уже развёрнут пользователем отдельно;
-  приложение подключается к нему через стандартные `OTEL_*` переменные
-  (инструкция — в SPEC §18 и README; подключение к OTel запланировано
-  в итерации наблюдаемости).
+  приложение подключается к нему через стандартные `OTEL_*` переменные.
+  Инструкция добавлена в README; фактическая доставка в Collector в этой
+  сессии не проверялась.
 
 ## Известные дефекты
 
@@ -298,6 +313,10 @@ generic exception handler раньше `ApiExceptionMiddleware` и возвра�
 | D044 | Панель схлопывает параллельные уведомления в один refresh; прогресс публикуется не чаще записи в SQLite (1 р/с) | Не запускать лишние чтения SQLite и не превышать требования SPEC §13.6 к частоте обновлений |
 | D045 | UI постановки copy/move вызывает `TaskDispatcher` напрямую; HTTP API использует тот же сервис | SPEC §15: серверный Blazor не вызывает собственный HTTP API, правила не дублируются |
 | D046 | Download открывает файл через общий resolver в `FileSystemReadService.OpenFile` и отдаёт `Results.File` потоком с `enableRangeProcessing`; UI — обычная ссылка на endpoint | SPEC §12.1: потоковая передача без буферизации, Range через стандартные возможности ASP.NET Core; серверный Blazor не вызывает собственное HTTP API, а навигация браузера на GET не требует antiforgery |
+| D047 | Логи — JSON console в stdout с UTC timestamp и scopes; `ActivityTrackingOptions` добавляет trace/span/parent id; startup и API-ошибки получают `TraceId` scope | SPEC §18: структурированные логи и traceId; контейнерная среда собирает stdout, а trace correlation проверена smoke-тестом |
+| D048 | OTLP exporter регистрируется только при заданном `OTEL_EXPORTER_OTLP_ENDPOINT`/signal endpoint; без exporter приложение полностью работоспособно; поддержан `OTEL_SDK_DISABLED` | Внешний Collector опционален и уже развёрнут пользователем; стандартные `OTEL_*` переменные не требуют кастомных настроек приложения |
+| D049 | Наблюдаемость задач: span `filebrowser.task.execute` создаётся worker-ом; `TaskMetrics` публикует counters/up-down/histogram meter `dotmeer.filebrowser`; физические пути не добавляются в теги | Спаны и метрики задач без раскрытия физических путей и без дублирования источника истины в UI-уведомлениях |
+| D050 | Ожидаемые API 4xx логируются warning без stack trace; 5xx — error с исключением; `ProblemDetails.traceId` совпадает со scope лога | Корреляция ошибок без раскрытия stack trace при штатных отказах и без чрезмерного шума в логах |
 
 При изменении решения:
 - не удалять историю;
@@ -739,6 +758,61 @@ Read-only корни отдельным пунктом не идут: их ме�
 - Решения: D046.
 - Остаток: открытых дефектов нет; I10 завершена.
 - Следующий шаг: I11 — Наблюдаемость, документация, приёмка.
+
+### S014 — 2026-11-06 — I11
+
+- Цель: закрыть приёмку MVP — наблюдаемость, документация, финальные
+  контейнерные проверки без roadmap-функций.
+- Выполнено:
+  - добавлены OpenTelemetry-пакеты (`OpenTelemetry* 1.20.1`), resource
+    service/version, ASP.NET Core/HttpClient tracing/metrics, runtime metrics,
+    custom `ActivitySource`/`Meter`; OTLP exporter условно по `OTEL_*`,
+    `OTEL_SDK_DISABLED=true` отключает регистрацию;
+  - JSON console logs с UTC timestamp/scopes; `ActivityTrackingOptions`;
+    startup-лог без физических путей; API-ошибки с scope `TraceId`,
+    4xx warning без stack trace, 5xx error с исключением;
+  - `ProblemDetails.traceId` берётся из `Activity.Current` при наличии trace;
+  - worker-ы создают span `filebrowser.task.execute` и публикуют метрики
+    `enqueued/rejected/started/finished/queue_depth/duration/bytes_processed/
+    items_processed`; dispatcher логирует публичные метаданные задачи;
+  - добавлены `ObservabilityTests` (2 теста), suite вырос с 107 до 109;
+  - README: наблюдаемость/OTLP-инструкция, ручная приёмка, backup `/config`,
+    ограничения symlink/cross-device/сторонних изменений; Compose —
+    закомментированный `OTEL_*` пример; PROJECT_STATE актуализирован.
+- Изменённые ключевые файлы: `Program.cs`,
+  `Observability/FileBrowserObservability.cs`, `Tasks/TaskMetrics.cs`,
+  `Tasks/TaskQueue.cs`, `Tasks/FileTransferEngine.cs`,
+  `Endpoints/ApiExceptionMiddleware.cs`, `appsettings*.json`,
+  `dotmeer.filebrowser.csproj`, `compose.yaml`, `README.md`,
+  `tests/dotmeer.filebrowser.Tests/ObservabilityTests.cs`,
+  `docs/PROJECT_STATE.md`.
+- Новые зависимости: `OpenTelemetry`, `OpenTelemetry.Extensions.Hosting`,
+  `OpenTelemetry.Exporter.OpenTelemetryProtocol`,
+  `OpenTelemetry.Instrumentation.AspNetCore`, `OpenTelemetry.Instrumentation.Http`,
+  `OpenTelemetry.Instrumentation.Runtime` — все `1.20.1`; нужны для SPEC §18
+  (tracing/metrics/опциональный OTLP без самописного экспортера).
+- Проверки:
+  - `dotnet build` — 0 ошибок, 0 предупреждений (SDK 10.0.401);
+  - `dotnet test` (Windows) — 109/109;
+  - `dotnet test` (Linux, `sdk:10.0` контейнер) — 109/109;
+  - `docker compose config` — exit 0;
+  - `docker build -t filemanager-i11 .` — образ собран, manifest list
+    `sha256:43593bac...`;
+  - контейнерный smoke test — health, roots/list, antiforgery, mkdir/rename,
+    copy completed, move completed, copy-conflict failed/`name_conflict`,
+    restart с сохранением задачи, download 200 и Range 206, delete,
+    history clear, `app.db`, uid `1654`, JSON startup logs и traceId в логах;
+  - `docker exec ... id -u` → `1654` (не root).
+- Невыполненные проверки: интерактивные браузерные клики; фактическая доставка
+  traces/metrics в конкретный внешний OTel Collector пользователя (Collector
+  недоступен в сессии); реальный cross-device move в I11 не перепроверялся —
+  он подтверждён в I08 на Linux tmpfs и остаётся рекомендацией для целевого
+  NAS.
+- Решения: D047–D050.
+- Остаток: открытых критичных дефектов нет; I11 завершена. MVP проверен
+  автоматическими, Linux- и контейнерными smoke-проверками; ручной чеклист
+  для оператора добавлен в README.
+- Следующий шаг: пользователь создаёт commit завершения MVP.
 
 <!--
 Шаблон следующей записи:

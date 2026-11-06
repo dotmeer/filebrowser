@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Antiforgery;
@@ -16,6 +17,14 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
         }
         catch (Exception exception) when (context.Request.Path.StartsWithSegments("/api"))
         {
+            var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
+            using var scope = logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["TraceId"] = traceId,
+                ["HttpMethod"] = context.Request.Method,
+                ["RequestPath"] = context.Request.Path.Value
+            });
+
             var (status, code, title, detail) = exception switch
             {
                 RootUnavailableException => (StatusCodes.Status503ServiceUnavailable, "root_unavailable", "Корень недоступен", "Файловый корень временно недоступен."),
@@ -35,7 +44,11 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
 
             if (status >= 500)
             {
-                logger.LogError(exception, "Ошибка API запроса {TraceId}", context.TraceIdentifier);
+                logger.LogError(exception, "Ошибка API запроса {TraceId}", traceId);
+            }
+            else
+            {
+                logger.LogWarning("Отклонён API запрос {TraceId}: {Status} {Code}", traceId, status, code);
             }
 
             if (context.Response.HasStarted)
@@ -54,7 +67,7 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
                 Instance = context.Request.Path
             };
             problem.Extensions["code"] = code;
-            problem.Extensions["traceId"] = context.TraceIdentifier;
+            problem.Extensions["traceId"] = traceId;
             await JsonSerializer.SerializeAsync(context.Response.Body, problem, cancellationToken: context.RequestAborted);
         }
     }

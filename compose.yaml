@@ -14,6 +14,11 @@ services:
       - config:/config
       - ./config.yaml:/config/config.yaml:ro
       - ./data:/data
+    # Optional external observability (see README):
+    # environment:
+    #   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    #   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    #   OTEL_RESOURCE_ATTRIBUTES: service.namespace=home,deployment.environment=production
 
   # A named volume is initially owned by root. Set its owner before starting
   # the unprivileged application process.

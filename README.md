@@ -7,16 +7,19 @@ Self-hosted веб-файлменеджер для просмотра и упр�
 Требования и границы MVP — в `docs/SPEC.md`. Текущее состояние — в
 `docs/PROJECT_STATE.md`.
 
-## Статус (I10 — download)
+## Статус (I11 — приёмка MVP)
 
-Реализован каркас приложения: solution, Blazor Web App (Interactive Server),
+Реализованы функции MVP: solution, Blazor Web App (Interactive Server),
 HTTP-endpoint `/healthz`, тестовый проект, контейнерный запуск, строгая
 загрузка YAML-конфигурации, безопасное разрешение файловых путей, чтение
 корней/каталогов через Minimal API и Blazor UI для просмотра, создания папок,
 переименования и удаления одного объекта, SQLite-хранилище и очередь фоновых
 задач, фоновые исполнители copy и move, панель задач с серверными
-уведомлениями, постановкой copy/move из UI и очисткой истории, а также
-скачивание одного файла через `GET /api/fs/download` с Range.
+уведомлениями, постановкой copy/move из UI и очисткой истории, скачивание
+одного файла через `GET /api/fs/download` с Range, а также наблюдаемость:
+структурированные JSON-логи, `traceId`, OpenTelemetry tracing/metrics, spans
+задач, метрики очереди и выполнения, опциональный OTLP exporter через
+стандартные `OTEL_*` переменные.
 
 ## Конфигурация
 
@@ -73,7 +76,8 @@ SQLite по умолчанию создаётся рядом с активным
 - `POST /api/fs/rename` принимает `{ source: { root, path }, newName }`;
 - `POST /api/fs/delete` принимает `{ source: { root, path } }` и удаляет
   только один объект (каталог удаляется рекурсивно);
-- все три запроса требуют antiforgery token из текущей страницы приложения и  связанный cookie. Токен передаётся в заголовке `X-CSRF-TOKEN`; отсутствующий
+- все три запроса требуют antiforgery token из текущей страницы приложения и
+  связанный cookie. Токен передаётся в заголовке `X-CSRF-TOKEN`; отсутствующий
   или невалидный токен возвращает `400` и не изменяет файловую систему;
 - конфликт имени возвращает `409` с `code: "name_conflict"`; существующие
   данные не перезаписываются. Корни, symlink и неподдерживаемые объекты
@@ -128,6 +132,43 @@ SQLite по умолчанию создаётся рядом с активным
 - `queued`, `scanning` и `running` задачи при старте приложения переводятся в
   `interrupted`. Очередь имеет ёмкость 100, число worker-потребителей берётся
   из YAML `workers`.
+
+## Наблюдаемость и OTLP
+
+- Логи пишутся в stdout в JSON-формате с UTC-временем и scopes. Содержимое
+  файлов не логируется; физические пути не являются частью клиентского
+  контракта и не должны раскрываться наружу;
+- `ProblemDetails` ошибок API содержит `traceId`. При активной трассировке
+  используется W3C trace id из `Activity.Current`, иначе — внутренний
+  идентификатор запроса ASP.NET Core;
+- OpenTelemetry включает ASP.NET Core и HttpClient instrumentation, а также
+  собственный span `filebrowser.task.execute` для каждой фоновой задачи. В
+  теги span-а попадают публичный идентификатор задачи, тип, состояние,
+  число источников и корень назначения; физические пути не добавляются;
+- Метрики публикуются из meter `dotmeer.filebrowser`:
+  `dotmeer.filebrowser.tasks.enqueued`, `.rejected`, `.started`,
+  `.finished`, `.queue_depth`, `.duration`, `.bytes_processed` и
+  `.items_processed`; кроме того включены базовые ASP.NET Core, HttpClient и
+  runtime-метрики;
+- OTLP exporter по умолчанию выключен. Он активируется, если задан
+  `OTEL_EXPORTER_OTLP_ENDPOINT` или signal-specific endpoint. Exporter
+  использует стандартные `OTEL_*` переменные, поэтому внешний Collector не
+  является зависимостью основного Compose;
+
+```yaml
+services:
+  filebrowser:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_EXPORTER_OTLP_HEADERS: Authorization=Bearer ${OTEL_TOKEN}
+      OTEL_SERVICE_NAME: dotmeer.filebrowser
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=home,deployment.environment=production
+```
+
+`OTEL_TOKEN` держите вне репозитория — например, в `.env`, secret-файле
+Docker Compose или переменных окружения хоста. Для OTLP/HTTP endpoint
+используйте `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` и порт `4318`.
 
 ## Интерфейс
 
@@ -237,6 +278,30 @@ copy config.example.yaml config.yaml
 docker compose up --build
 ```
 
+## Ручная приёмка после развёртывания
+
+Выполните в браузере и через HTTP после запуска контейнера:
+
+1. `GET /healthz` → `200 {"status":"ok"}`;
+2. откройте `/browse`, проверьте ленивое дерево, список каталога,
+   breadcrumbs и прямой URL;
+3. создайте папку, переименуйте её, удалите с подтверждением; попробуйте
+   повторно создать существующее имя и убедитесь, что данные не перезаписаны;
+4. выберите один файл и скачайте его; проверьте `Range` через
+   `curl -H "Range: bytes=0-4" http://127.0.0.1:8080/api/fs/download?...`;
+5. скопируйте и переместите один и несколько объектов; проверьте активные
+   задачи, скорость/счётчики и частичный результат при конфликте имени;
+6. перезапустите контейнер: активные задачи должны стать `interrupted`, а
+   после повторного открытия `/browse` состояние должно быть перечитано из
+   SQLite;
+7. очистите историю и убедитесь, что активные задачи и файлы не изменились;
+8. проверьте UID процесса (`docker exec <container> id -u`) — не root;
+9. в логах контейнера должны быть JSON-строки; ошибки API должны содержать
+   тот же `traceId`, который возвращён в ProblemDetails;
+10. при настроенном `OTEL_EXPORTER_OTLP_ENDPOINT` проверьте в Collector
+    наличие service `dotmeer.filebrowser`, span `filebrowser.task.execute`
+    и метрик `dotmeer.filebrowser.tasks.*`.
+
 ## Контейнер
 
 - Многоступенчатый `Dockerfile`: сборка в `sdk:10.0`, запуск в `aspnet:10.0`
@@ -254,13 +319,15 @@ docker compose up --build
 - `./data` монтируется в `/data`, которому соответствует пример конфигурации;
 - health check изнутри образа не настроен: в `aspnet`-образе нет `curl`.
   Проверяйте `GET /healthz` с хоста.
-- Последняя Docker-проверка (2026-11-05, Linux engine через Docker Desktop):
-  `docker build -t filemanager-i10 .` прошёл; образ запускается от UID `1654`;
-  smoke-тест с временными config/data mounts вернул `200` на `/healthz`,
-  полный download (`application/octet-stream`, `Content-Disposition`,
-  `Content-Length`), `206` на Range-запрос (`Content-Range: bytes 0-4/33`),
-  `400/invalid_request` на скачивание папки и подтвердил создание `app.db`.
-- `docker compose config` подтверждён 2026-11-05. Изолированный
+- Последняя Docker-проверка (2026-11-06, Linux engine через Docker Desktop):
+  `docker build -t filemanager-i11 .` прошёл; образ запускается от UID `1654`;
+  smoke-тест с временными config/data mounts выполнил `healthz`, чтение списка,
+  mkdir/rename, copy completed, move completed, copy-conflict `failed` с
+  `name_conflict`, restart с сохранением задачи, полный download и Range `206`,
+  `400/invalid_request` на скачивание папки, очистку истории и создание
+  `app.db`; `traceId` из ProblemDetails найден в JSON-логах контейнера.
+- `docker compose config` подтверждён 2026-11-06 после добавления
+  закомментированного примера `OTEL_*`-переменных. Изолированный
   `docker compose up` проверялся ранее, в I04: lifecycle запустил
   `config-permissions`, затем приложение; smoke-тест Compose вернул `200` на
   `/healthz` и `/browse`. Использовались отдельный временный project/volume и
@@ -295,8 +362,16 @@ docker compose up --build
 ## Известные ограничения
 
 - Нет авторизации: приложение предназначено только для доверенной сети;
+- symlink и специальные файлы не поддерживаются: переход, изменение и
+  скачивание таких объектов запрещены, операции с ними завершаются ошибкой;
+- файлы, изменяемые сторонними процессами во время copy/move/delete, могут
+  привести к ошибке или частичному результату; согласованный снимок ФС не
+  создаётся;
 - загрузка файлов, скачивание папок и наборов объектов (ZIP), предпросмотр,
   поиск — вне MVP; скачивается только один обычный файл;
 - cross-device move проверен на Linux tmpfs; на целевом NAS с реальными
   mounts рекомендуется повторить приёмочный сценарий;
+- `app.db` должен находиться на локальной ФС, а не на SMB/NFS; резервную
+  копию `/config` делайте средствами хоста только при остановленном
+  приложении;
 - детальные правила — в `docs/SPEC.md` (границы MVP, §3).
