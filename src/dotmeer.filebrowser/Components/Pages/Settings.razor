@@ -3,7 +3,33 @@
 <PageTitle>Настройки</PageTitle>
 
 <section class="settings-page">
-    <h1>Настройки</h1>
-    <p>Настройки приложения задаются в файле <code>config.yaml</code>.</p>
-    <p>Измените файл на сервере и перезапустите приложение, чтобы применить изменения.</p>
+    <div class="settings-header">
+        <button class="btn btn-outline-secondary" type="button" data-nav-back>Назад</button>
+        <h1>Настройки</h1>
+    </div>
+
+    <section class="settings-section" aria-labelledby="theme-heading">
+        <h2 id="theme-heading">Оформление</h2>
+        <fieldset class="theme-options">
+            <legend>Тема</legend>
+            <label class="theme-option">
+                <input type="radio" name="theme-preference" value="system" />
+                <span>Системная</span>
+            </label>
+            <label class="theme-option">
+                <input type="radio" name="theme-preference" value="light" />
+                <span>Светлая</span>
+            </label>
+            <label class="theme-option">
+                <input type="radio" name="theme-preference" value="dark" />
+                <span>Тёмная</span>
+            </label>
+        </fieldset>
+    </section>
+
+    <section class="settings-section" aria-labelledby="config-heading">
+        <h2 id="config-heading">Конфигурация сервера</h2>
+        <p>Настройки приложения задаются в файле <code>config.yaml</code>.</p>
+        <p>Измените файл на сервере и перезапустите приложение, чтобы применить изменения.</p>
+    </section>
 </section>

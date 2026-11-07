@@ -182,6 +182,12 @@ public sealed class FileSystemReadTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("config.yaml", html);
         Assert.Contains("перезапустите приложение", html);
+        Assert.Contains("<legend>Тема</legend>", html);
+        Assert.Contains("Системная", html);
+        Assert.Contains("Светлая", html);
+        Assert.Contains("Тёмная", html);
+        Assert.Contains("name=\"theme-preference\"", html);
+        Assert.Contains("data-nav-back", html);
     }
 
     [Fact]
