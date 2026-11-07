@@ -1,0 +1,45 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JavaScript
+
+<div class="splitter" @ref="_element" role="separator" aria-orientation="vertical"
+     title="Потяните, чтобы изменить ширину панели" data-target="@Side"></div>
+
+@code {
+    [Parameter, EditorRequired] public string Side { get; set; } = "prev";
+
+    private ElementReference _element;
+    private bool _jsInitialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_jsInitialized)
+        {
+            try
+            {
+                await JavaScript.InvokeVoidAsync("fileBrowser.initSplitter", _element);
+                _jsInitialized = true;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+            {
+                // Static prerendering and a disconnected circuit do not provide JS interop.
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_jsInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            await JavaScript.InvokeVoidAsync("fileBrowser.disposeSplitter", _element);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+        {
+            // The circuit is already gone; there is nothing left to unregister.
+        }
+    }
+}

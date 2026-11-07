@@ -11,6 +11,10 @@ COPY tests/dotmeer.filebrowser.Tests/dotmeer.filebrowser.Tests.csproj tests/dotm
 RUN dotnet restore dotmeer.filebrowser.slnx
 
 COPY . .
+# Restore must run with the full source tree present: with a csproj-only
+# restore the static web assets manifest loses the Blazor framework JS
+# (_framework/blazor.web.js) and the interactive UI breaks with 404.
+RUN dotnet restore dotmeer.filebrowser.slnx
 RUN dotnet publish src/dotmeer.filebrowser/dotmeer.filebrowser.csproj \
     --configuration Release \
     --output /app/publish \

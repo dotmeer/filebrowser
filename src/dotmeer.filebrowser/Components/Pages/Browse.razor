@@ -12,44 +12,6 @@
 <PageTitle>Файлы</PageTitle>
 
 <section class="browse-page">
-    <header class="browse-header">
-        <div>
-            <h1>Файлы</h1>
-            @if (_listing is not null)
-            {
-                <p class="browse-selection">Выбрано: @_selection.Count</p>
-            }
-        </div>
-        <div class="browse-actions" aria-label="Действия с файлами">
-            <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog" disabled="@(_loading || _listing is null)">
-                Создать папку
-            </button>
-            <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
-                Переименовать
-            </button>
-            <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected" disabled="@(!CanStartTask || _loading)">
-                Копировать
-            </button>
-            <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
-                Переместить
-            </button>
-            @if (SelectedFileDownloadUrl is not null)
-            {
-                <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>Скачать</a>
-            }
-            else
-            {
-                <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">Скачать</a>
-            }
-            <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
-                Удалить
-            </button>
-            <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
-                Обновить
-            </button>
-        </div>
-    </header>
-
     @if (_taskStatus is not null)
     {
         <p class="task-note" role="status">@_taskStatus</p>
@@ -73,8 +35,38 @@
                 </ul>
             }
         </aside>
+        <PanelSplitter Side="prev" />
 
         <main class="directory-content">
+            <div class="browse-actions" aria-label="Действия с файлами">
+                <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
+                    Обновить
+                </button>
+                <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog" disabled="@(_loading || _listing is null)">
+                    Создать папку
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
+                    Переименовать
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected" disabled="@(!CanStartTask || _loading)">
+                    Копировать
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
+                    Переместить
+                </button>
+                @if (SelectedFileDownloadUrl is not null)
+                {
+                    <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>Скачать</a>
+                }
+                else
+                {
+                    <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">Скачать</a>
+                }
+                <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
+                    Удалить
+                </button>
+            </div>
+
             @if (_listing is not null)
             {
                 <nav class="breadcrumbs" aria-label="Путь к каталогу">
@@ -158,6 +150,9 @@
                 </div>
             }
         </main>
+        <PanelSplitter Side="next" />
+
+        <TaskPanel OnTaskCompleted="HandleTaskCompletedAsync" />
     </div>
 
     @if (_contextEntry is not null)
@@ -233,8 +228,6 @@
                            Sources="@_taskSources" Busy="@_taskBusy" Error="@_taskError"
                            OnConfirm="EnqueueTaskAsync" OnCancel="CloseTaskDialog" />
     }
-
-    <TaskPanel OnTaskCompleted="HandleTaskCompletedAsync" />
 </section>
 
 @code {

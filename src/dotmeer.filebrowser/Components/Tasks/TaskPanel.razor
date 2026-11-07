@@ -6,10 +6,7 @@
 
 <section class="task-panel" aria-labelledby="task-panel-title">
     <header class="task-panel-header">
-        <div>
-            <h2 id="task-panel-title">Задачи</h2>
-            <p class="muted">Активные задачи и история. Состояние перечитывается из SQLite.</p>
-        </div>
+        <h2 id="task-panel-title">Задачи</h2>
         <div class="task-panel-actions">
             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="RefreshAsync" disabled="@_loading">
                 Обновить
@@ -32,11 +29,7 @@
     }
 
     <h3>Активные задачи (@_active.Count)</h3>
-    @if (_active.Count == 0)
-    {
-        <p class="muted">Активных задач нет.</p>
-    }
-    else
+    @if (_active.Count > 0)
     {
         <div class="task-list">
             @foreach (var task in _active)
@@ -46,7 +39,7 @@
         </div>
     }
 
-    <h3>История (последние 50 с пагинацией)</h3>
+    <h3>История</h3>
     @if (_history.Tasks.Count == 0)
     {
         <p class="muted">История пуста.</p>
@@ -125,9 +118,9 @@
     private DotNetObjectReference<TaskPanel>? _selfReference;
     private bool _jsRegistered;
     private volatile bool _disposed;
-    private bool _refreshScheduled;
+    private int _refreshPending;
+    private int _refreshActive;
     private int _historyResetRequested;
-    private readonly object _refreshLock = new();
     private HashSet<Guid> _activeIds = [];
     private bool _activeIdsInitialized;
     private bool _clearDialog;
@@ -182,48 +175,50 @@
             return;
         }
 
-        lock (_refreshLock)
+        // Coalesce notifications without dropping the last one: if a change
+        // arrives while a refresh is running, the loop performs one more pass.
+        Interlocked.Exchange(ref _refreshPending, 1);
+        if (Interlocked.CompareExchange(ref _refreshActive, 1, 0) != 0)
         {
-            if (_refreshScheduled)
-            {
-                return;
-            }
-
-            _refreshScheduled = true;
+            return;
         }
 
         try
         {
-            _ = InvokeAsync(RefreshScheduledAsync);
+            _ = InvokeAsync(RefreshLoopAsync);
         }
         catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
         {
-            lock (_refreshLock)
-            {
-                _refreshScheduled = false;
-            }
+            Interlocked.Exchange(ref _refreshActive, 0);
         }
     }
 
-    private async Task RefreshScheduledAsync()
+    private async Task RefreshLoopAsync()
     {
         try
         {
-            await LoadAsync();
-            if (!_disposed)
+            while (!_disposed && Interlocked.Exchange(ref _refreshPending, 0) == 1)
             {
-                StateHasChanged();
+                try
+                {
+                    await LoadAsync();
+                    if (!_disposed)
+                    {
+                        StateHasChanged();
+                    }
+                }
+                catch (Exception)
+                {
+                    // A lost renderer must not break task notifications or background work.
+                }
             }
-        }
-        catch (Exception)
-        {
-            // A lost renderer must not break task notifications or background work.
         }
         finally
         {
-            lock (_refreshLock)
+            Interlocked.Exchange(ref _refreshActive, 0);
+            if (!_disposed && Interlocked.CompareExchange(ref _refreshPending, 0, 1) == 1)
             {
-                _refreshScheduled = false;
+                ScheduleRefresh();
             }
         }
     }
