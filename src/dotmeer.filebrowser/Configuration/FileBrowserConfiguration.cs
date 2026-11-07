@@ -51,12 +51,10 @@ public static partial class FileBrowserConfigurationLoader
             throw new InvalidOperationException("Конфигурация YAML невалидна.", exception);
         }
 
-        var configDirectory = Path.GetDirectoryName(fullConfigPath)
-            ?? throw new InvalidOperationException("Не удалось определить каталог конфигурации.");
-        return Validate(document, configDirectory);
+        return Validate(document);
     }
 
-    private static FileBrowserConfiguration Validate(ConfigurationDocument document, string configDirectory)
+    private static FileBrowserConfiguration Validate(ConfigurationDocument document)
     {
         var workers = document.Workers ?? DefaultWorkers;
         if (workers is < 1 or > 16)
@@ -90,15 +88,6 @@ public static partial class FileBrowserConfigurationLoader
         if (roots.GroupBy(root => root.Name, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
         {
             throw new InvalidOperationException("Имена корней должны быть уникальны без учёта регистра.");
-        }
-
-        var fullConfigDirectory = Path.GetFullPath(configDirectory);
-        foreach (var root in roots)
-        {
-            if (PathInspection.PathsOverlap(root.PhysicalPath, fullConfigDirectory))
-            {
-                throw new InvalidOperationException("Корень не может пересекаться с каталогом конфигурации.");
-            }
         }
 
         for (var index = 0; index < roots.Count; index++)

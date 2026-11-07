@@ -30,7 +30,7 @@ public class ConfigurationTests
     }
 
     [Fact]
-    public void Load_RejectsNestedRootsAndConfigurationDirectoryOverlap()
+    public void Load_RejectsNestedRoots()
     {
         using var workspace = new TestWorkspace();
         var nestedPath = Path.Combine(workspace.RootPath, "nested");
@@ -38,9 +38,27 @@ public class ConfigurationTests
 
         Assert.Throws<InvalidOperationException>(() =>
             FileBrowserConfigurationLoader.Load(workspace.WriteRawConfiguration(nestedRootsYaml)));
+    }
 
+    [Fact]
+    public void Load_AllowsConfigurationDirectoryOverlapAndFilesystemRoot()
+    {
+        using var workspace = new TestWorkspace();
         var configOverlapYaml = $"roots:\n  - name: files\n    path: '{workspace.ConfigDirectory}'\n";
-        Assert.Throws<InvalidOperationException>(() =>
-            FileBrowserConfigurationLoader.Load(workspace.WriteRawConfiguration(configOverlapYaml)));
+
+        var overlapConfiguration = FileBrowserConfigurationLoader.Load(
+            workspace.WriteRawConfiguration(configOverlapYaml));
+
+        Assert.Single(overlapConfiguration.Roots);
+        Assert.Equal(Path.GetFullPath(workspace.ConfigDirectory), overlapConfiguration.Roots[0].PhysicalPath);
+
+        var filesystemRoot = Path.GetPathRoot(Path.GetTempPath())!;
+        var filesystemRootYaml = $"roots:\n  - name: system\n    path: '{filesystemRoot}'\n";
+
+        var systemConfiguration = FileBrowserConfigurationLoader.Load(
+            workspace.WriteRawConfiguration(filesystemRootYaml));
+
+        Assert.Single(systemConfiguration.Roots);
+        Assert.Equal(Path.GetFullPath(filesystemRoot), systemConfiguration.Roots[0].PhysicalPath);
     }
 }

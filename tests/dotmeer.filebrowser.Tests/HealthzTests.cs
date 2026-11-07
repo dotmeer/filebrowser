@@ -54,4 +54,35 @@ public class HealthzTests
             Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
         }
     }
+
+    [Fact]
+    public async Task ConfiguredRootOverlappingConfigurationDirectory_StartsAndShowsServiceFiles()
+    {
+        using var workspace = new TestWorkspace();
+        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
+        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
+        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
+        Environment.SetEnvironmentVariable("ConfigPath", workspace.WriteConfiguration(workspace.ConfigDirectory));
+        Environment.SetEnvironmentVariable("DatabasePath", null);
+        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>();
+            using var client = factory.CreateClient();
+
+            var response = await client.GetAsync("/healthz");
+            var listing = await client.GetStringAsync("/api/fs/list?root=files&path=");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(File.Exists(Path.Combine(workspace.ConfigDirectory, "app.db")));
+            Assert.Contains("\"name\":\"config.yaml\"", listing);
+            Assert.Contains("\"name\":\"app.db\"", listing);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
+            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
+            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
+        }
+    }
 }
