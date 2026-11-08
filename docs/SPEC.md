@@ -979,7 +979,6 @@ Linux-тесты обязательны для проверки symlink и ко�
 - docker compose config;
 - запуск контейнера и smoke test.
 
-Playwright не обязателен для MVP.
 Основные UI-сценарии проверяются вручную по чеклисту
 (`docs/MANUAL_TEST_SCENARIOS.md`).
 
