@@ -3,7 +3,9 @@ using dotmeer.filebrowser.Components;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.Endpoints;
 using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Localization;
 using dotmeer.filebrowser.Observability;
+using dotmeer.filebrowser.Settings;
 using dotmeer.filebrowser.Tasks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -57,6 +59,8 @@ catch (Exception exception)
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+builder.Services.AddLocalization(options => options.ResourcesPath = "Localization");
+builder.Services.AddSingleton(new AppSettingsService(taskDatabase));
 builder.Services.AddFileBrowserObservability(builder.Configuration);
 builder.Services.AddSingleton(fileBrowserConfiguration);
 builder.Services.AddSingleton<PathResolver>();
@@ -70,6 +74,7 @@ builder.Services.AddSingleton<TaskQueue>();
 builder.Services.AddSingleton<TaskDispatcher>();
 builder.Services.AddSingleton<TemporaryArtifactCleanupService>();
 builder.Services.AddSingleton<TaskProgressService>();
+builder.Services.AddSingleton<TaskPresentation>();
 builder.Services.AddSingleton<FileTransferEngine>();
 builder.Services.AddSingleton<CopyTaskExecutor>();
 builder.Services.AddSingleton<MoveTaskExecutor>();
@@ -85,7 +90,12 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
-// Must be inside the generic exception handler so API errors keep the ProblemDetails contract.
+// UI language is a server-side setting (SQLite); the culture applies to every
+// request, including re-executed status-code pages.
+app.UseRequestLocalization(StoredLanguageProvider.CreateOptions());
+// Inside UseRequestLocalization so ProblemDetails are translated with the
+// request culture (the localization middleware restores the ambient culture
+// after the pipeline returns).
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
@@ -99,6 +109,7 @@ app.MapRazorComponents<App>()
 app.MapHealthz();
 app.MapFileSystem();
 app.MapTasks();
+app.MapSettings();
 
 app.Run();
 

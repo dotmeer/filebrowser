@@ -1,7 +1,8 @@
 ﻿@inherits LayoutComponentBase
+@inject IStringLocalizer<SharedResources> L
 
 <header class="top-bar">
-    <span class="app-title">Файловый менеджер</span>
+    <span class="app-title">@L["Файловый менеджер"]</span>
     <AppMenu />
 </header>
 

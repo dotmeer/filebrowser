@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Localization;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -159,9 +161,28 @@ public sealed class TaskManagementTests
         Assert.Equal(25, TaskPresentation.GetPercent(running));
         Assert.Equal(100, TaskPresentation.GetPercent(completed));
         Assert.Equal(100, TaskPresentation.GetPercent(overrun));
-        Assert.Equal("0 Б", TaskPresentation.FormatBytes(0));
-        Assert.Equal("—", TaskPresentation.FormatBytes(null));
-        Assert.Equal("0 Б/с", TaskPresentation.FormatSpeed(0));
+
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en");
+        try
+        {
+            var presentation = CreatePresentation();
+            Assert.Equal("0 B", presentation.FormatBytes(0));
+            Assert.Equal("—", presentation.FormatBytes(null));
+            Assert.Equal("0 B/s", presentation.FormatSpeed(0));
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    private static TaskPresentation CreatePresentation()
+    {
+        var factory = new ResourceManagerStringLocalizerFactory(
+            Microsoft.Extensions.Options.Options.Create(new LocalizationOptions { ResourcesPath = "Localization" }),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+        return new TaskPresentation(new StringLocalizer<SharedResources>(factory));
     }
 
     private static FileTask CreateTask(FileTaskStatus status, long bytesDone, long? bytesTotal) => new(

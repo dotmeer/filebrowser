@@ -1,10 +1,12 @@
 @using System.Globalization
+@inject TaskPresentation Presentation
+@inject IStringLocalizer<SharedResources> L
 
 <article class="task-card @TaskPresentation.StatusCssClass(Task.Status)">
     <header class="task-card-header">
         <div>
-            <strong>@TaskPresentation.TypeLabel(Task.Type)</strong>
-            <span class="task-status @TaskPresentation.StatusCssClass(Task.Status)">@TaskPresentation.StatusLabel(Task.Status)</span>
+            <strong>@Presentation.TypeLabel(Task.Type)</strong>
+            <span class="task-status @TaskPresentation.StatusCssClass(Task.Status)">@Presentation.StatusLabel(Task.Status)</span>
         </div>
         <time class="local-time" datetime="@Task.CreatedAtUtc.ToString("O", CultureInfo.InvariantCulture)">@Task.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC</time>
     </header>
@@ -12,29 +14,29 @@
     <p class="task-route">
         @foreach (var source in Task.Sources)
         {
-            <code>@TaskPresentation.FormatReference(source)</code>
+            <code>@Presentation.FormatReference(source)</code>
         }
         <span aria-hidden="true">→</span>
-        <code>@TaskPresentation.FormatReference(Task.Destination)</code>
+        <code>@Presentation.FormatReference(Task.Destination)</code>
     </p>
 
     @if (Task.Status == FileTaskStatus.Queued)
     {
-        <p class="task-note">Ожидает запуска.</p>
+        <p class="task-note">@L["Ожидает запуска."]</p>
     }
     else if (Task.Status == FileTaskStatus.Scanning)
     {
-        <div class="progress task-progress" role="progressbar" aria-valuetext="Проверка и подсчёт">
+        <div class="progress task-progress" role="progressbar" aria-valuetext="@L["Проверка и подсчёт"]">
             <div class="progress-bar progress-bar-striped progress-bar-animated task-progress-unknown" style="width: 100%">
-                Проверка и подсчёт…
+                @L["Проверка и подсчёт…"]
             </div>
         </div>
     }
     else if (Task.Status == FileTaskStatus.Running && Percent is null)
     {
-        <div class="progress task-progress" role="progressbar" aria-valuetext="Прогресс неизвестен">
+        <div class="progress task-progress" role="progressbar" aria-valuetext="@L["Прогресс неизвестен"]">
             <div class="progress-bar progress-bar-striped progress-bar-animated task-progress-unknown" style="width: 100%">
-                Выполняется…
+                @L["Выполняется…"]
             </div>
         </div>
     }
@@ -48,11 +50,11 @@
     }
 
     <div class="task-counters">
-        <span>Байты: @TaskPresentation.FormatBytes(Task.BytesDone) / @TaskPresentation.FormatBytes(Task.BytesTotal)</span>
-        <span>Объекты: @Task.ItemsDone@(Task.ItemsTotal is null ? string.Empty : $" / {Task.ItemsTotal}")</span>
+        <span>@L["Байты:"] @Presentation.FormatBytes(Task.BytesDone) / @Presentation.FormatBytes(Task.BytesTotal)</span>
+        <span>@L["Объекты:"] @Task.ItemsDone@(Task.ItemsTotal is null ? string.Empty : $" / {Task.ItemsTotal}")</span>
         @if (BytesPerSecond > 0)
         {
-            <span>Скорость: @TaskPresentation.FormatSpeed(BytesPerSecond)</span>
+            <span>@L["Скорость:"] @Presentation.FormatSpeed(BytesPerSecond)</span>
         }
     </div>
 
@@ -64,15 +66,15 @@
     @if (Task.Items.Count > 0)
     {
         <details class="task-items" open="@(Task.Status is FileTaskStatus.Failed or FileTaskStatus.Interrupted)">
-            <summary>Результат по объектам (@Task.Items.Count)</summary>
+            <summary>@L["Результат по объектам ({0})", Task.Items.Count]</summary>
             <ul>
                 @foreach (var item in Task.Items)
                 {
                     <li>
                         <span class="task-item-status @TaskPresentation.ItemStatusCssClass(item.Status)">
-                            @TaskPresentation.ItemStatusLabel(item.Status)
+                            @Presentation.ItemStatusLabel(item.Status)
                         </span>
-                        <code>@TaskPresentation.FormatReference(item.Source)</code>
+                        <code>@Presentation.FormatReference(item.Source)</code>
                         @if (item.ItemsTotal is not null)
                         {
                             <span class="task-item-count">@item.ItemsDone / @item.ItemsTotal</span>

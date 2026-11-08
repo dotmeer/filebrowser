@@ -3,17 +3,18 @@
 @inject TaskNotificationService Notifications
 @inject TaskProgressService Progress
 @inject IJSRuntime JavaScript
+@inject IStringLocalizer<SharedResources> L
 
 <section class="task-panel" aria-labelledby="task-panel-title">
     <header class="task-panel-header">
-        <h2 id="task-panel-title">Задачи</h2>
+        <h2 id="task-panel-title">@L["Задачи"]</h2>
         <div class="task-panel-actions">
             <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="RefreshAsync" disabled="@_loading">
-                Обновить
+                @L["Обновить"]
             </button>
             <button class="btn btn-outline-danger btn-sm" type="button" @onclick="OpenClearHistory"
                     disabled="@(_loading || _clearDialog || (!_history.HasMore && _historyOffset == 0 && _history.Tasks.Count == 0))">
-                Очистить историю
+                @L["Очистить историю"]
             </button>
         </div>
     </header>
@@ -25,10 +26,10 @@
 
     @if (_lastDeletedCount is not null)
     {
-        <p class="task-note" role="status">Удалено задач: @_lastDeletedCount.</p>
+        <p class="task-note" role="status">@L["Удалено задач: {0}.", _lastDeletedCount]</p>
     }
 
-    <h3>Активные задачи (@_active.Count)</h3>
+    <h3>@L["Активные задачи ({0})", _active.Count]</h3>
     @if (_active.Count > 0)
     {
         <div class="task-list">
@@ -39,10 +40,10 @@
         </div>
     }
 
-    <h3>История</h3>
+    <h3>@L["История"]</h3>
     @if (_history.Tasks.Count == 0)
     {
-        <p class="muted">История пуста.</p>
+        <p class="muted">@L["История пуста."]</p>
     }
     else
     {
@@ -58,13 +59,13 @@
         <button class="btn btn-outline-secondary btn-sm" type="button"
                 @onclick="() => GoToHistoryPageAsync(_historyOffset - PageSize)"
                 disabled="@(_loading || _historyOffset == 0)">
-            Новее
+            @L["Новее"]
         </button>
         <span>@GetHistoryRangeLabel()</span>
         <button class="btn btn-outline-secondary btn-sm" type="button"
                 @onclick="() => GoToHistoryPageAsync(_historyOffset + PageSize)"
                 disabled="@(_loading || !_history.HasMore)">
-            Старее
+            @L["Старее"]
         </button>
     </div>
 
@@ -72,16 +73,15 @@
     {
         <div class="dialog-backdrop">
             <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-history-title">
-                <h2 id="clear-history-title">Очистить историю задач?</h2>
+                <h2 id="clear-history-title">@L["Очистить историю задач?"]</h2>
                 <p class="dialog-warning">
-                    Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом.
-                    Активные задачи и файлы не изменяются.
+                    @L["Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются."]
                 </p>
                 <div class="form-check">
                     <input id="confirm-clear-history" class="form-check-input" type="checkbox"
                            @bind="_clearConfirmed" disabled="@_clearing" />
                     <label class="form-check-label" for="confirm-clear-history">
-                        Я понимаю, что историю нельзя восстановить
+                        @L["Я понимаю, что историю нельзя восстановить"]
                     </label>
                 </div>
 
@@ -92,11 +92,11 @@
 
                 <div class="dialog-actions">
                     <button class="btn btn-outline-secondary" type="button" @onclick="CloseClearDialog" disabled="@_clearing">
-                        Отмена
+                        @L["Отмена"]
                     </button>
                     <button class="btn btn-danger" type="button" @onclick="ClearHistoryAsync"
                             disabled="@(!_clearConfirmed || _clearing)">
-                        Очистить
+                        @L["Очистить"]
                     </button>
                 </div>
             </section>
@@ -249,7 +249,7 @@
             }
             catch (Exception)
             {
-                _loadError = "Не удалось прочитать состояние задач из SQLite.";
+                _loadError = L["Не удалось прочитать состояние задач из SQLite."];
                 return;
             }
 
@@ -301,7 +301,7 @@
     {
         if (_history.Tasks.Count == 0)
         {
-            return "Записей нет";
+            return L["Записей нет"];
         }
 
         return _historyOffset == 0
@@ -348,7 +348,7 @@
         }
         catch (Exception)
         {
-            _clearError = "Не удалось очистить историю. Повторите попытку.";
+            _clearError = L["Не удалось очистить историю. Повторите попытку."];
         }
         finally
         {

@@ -1,9 +1,10 @@
 @page "/"
+@inject IStringLocalizer<SharedResources> L
 
-<PageTitle>Файлы</PageTitle>
+<PageTitle>@L["Файлы"]</PageTitle>
 
 <section class="home-page">
-    <h1>Файловый менеджер</h1>
-    <p>Просматривайте содержимое настроенных корней файловой системы.</p>
-    <NavLink class="btn btn-primary" href="browse">Открыть файлы</NavLink>
+    <h1>@L["Файловый менеджер"]</h1>
+    <p>@L["Просматривайте содержимое настроенных корней файловой системы."]</p>
+    <NavLink class="btn btn-primary" href="browse">@L["Открыть файлы"]</NavLink>
 </section>

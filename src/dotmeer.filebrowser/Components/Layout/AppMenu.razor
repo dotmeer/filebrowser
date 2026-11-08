@@ -1,7 +1,8 @@
 @rendermode InteractiveServer
+@inject IStringLocalizer<SharedResources> L
 
 <div class="menu-wrap">
-    <button class="burger" type="button" @onclick="ToggleMenu" aria-label="Меню" aria-haspopup="true" aria-expanded="@(_menuOpen ? "true" : "false")">
+    <button class="burger" type="button" @onclick="ToggleMenu" aria-label="@L["Меню"]" aria-haspopup="true" aria-expanded="@(_menuOpen ? "true" : "false")">
         <span class="bar"></span>
         <span class="bar"></span>
         <span class="bar"></span>
@@ -9,8 +10,8 @@
     @if (_menuOpen)
     {
         <div class="menu-overlay" @onclick="CloseMenu"></div>
-        <nav class="dropdown" aria-label="Меню приложения">
-            <a href="settings" @onclick="CloseMenu">Настройки</a>
+        <nav class="dropdown" aria-label="@L["Меню приложения"]">
+            <a href="settings" @onclick="CloseMenu">@L["Настройки"]</a>
         </nav>
     }
 </div>

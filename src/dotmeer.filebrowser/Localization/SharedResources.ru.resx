@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="Settings_Title" xml:space="preserve"><value>Настройки</value></data>
+  <data name="Settings_Back" xml:space="preserve"><value>Назад</value></data>
+  <data name="Settings_Appearance" xml:space="preserve"><value>Оформление</value></data>
+  <data name="Settings_Theme" xml:space="preserve"><value>Тема</value></data>
+  <data name="Theme_System" xml:space="preserve"><value>Системная</value></data>
+  <data name="Theme_Light" xml:space="preserve"><value>Светлая</value></data>
+  <data name="Theme_Dark" xml:space="preserve"><value>Тёмная</value></data>
+  <data name="Settings_ServerConfiguration" xml:space="preserve"><value>Конфигурация сервера</value></data>
+  <data name="Settings_ConfigurationDescription1" xml:space="preserve"><value>Настройки приложения задаются в файле config.yaml.</value></data>
+  <data name="Settings_ConfigurationDescription2" xml:space="preserve"><value>Измените файл на сервере и перезапустите приложение, чтобы применить изменения.</value></data>
+  <data name="Settings_Language" xml:space="preserve"><value>Язык</value></data>
+  <data name="Language_English" xml:space="preserve"><value>English</value></data>
+  <data name="Language_Russian" xml:space="preserve"><value>Русский</value></data>
+  <data name="Settings_SaveLanguage" xml:space="preserve"><value>Сохранить</value></data>
+  <data name="Error_RootUnavailable_Title" xml:space="preserve"><value>Корень недоступен</value></data>
+  <data name="Error_RootUnavailable_Detail" xml:space="preserve"><value>Файловый корень временно недоступен.</value></data>
+  <data name="Error_NotFound_Title" xml:space="preserve"><value>Объект не найден</value></data>
+  <data name="Error_NotFound_Detail" xml:space="preserve"><value>Запрошенный корень или объект не найден.</value></data>
+  <data name="Error_NameConflict_Title" xml:space="preserve"><value>Конфликт имени</value></data>
+  <data name="Error_NameConflict_Detail" xml:space="preserve"><value>Объект с таким именем уже существует.</value></data>
+  <data name="Error_AccessDenied_Title" xml:space="preserve"><value>Нет доступа</value></data>
+  <data name="Error_AccessDenied_Detail" xml:space="preserve"><value>Недостаточно прав для выполнения операции.</value></data>
+  <data name="Error_Antiforgery_Title" xml:space="preserve"><value>Запрос отклонён</value></data>
+  <data name="Error_Antiforgery_Detail" xml:space="preserve"><value>Не удалось подтвердить защитный токен запроса.</value></data>
+  <data name="Error_TaskNotFound_Title" xml:space="preserve"><value>Задача не найдена</value></data>
+  <data name="Error_TaskNotFound_Detail" xml:space="preserve"><value>Запрошенная задача не найдена.</value></data>
+  <data name="Error_TaskQueueFull_Title" xml:space="preserve"><value>Очередь заполнена</value></data>
+  <data name="Error_TaskQueueFull_Detail" xml:space="preserve"><value>Очередь задач заполнена. Повторите попытку позже.</value></data>
+  <data name="Error_InvalidRequest_Title" xml:space="preserve"><value>Некорректный запрос</value></data>
+  <data name="Error_InvalidRequest_Detail" xml:space="preserve"><value>Проверьте параметры запроса.</value></data>
+  <data name="Error_InvalidPath_Detail" xml:space="preserve"><value>Проверьте root и относительный path.</value></data>
+  <data name="Error_UnsupportedObject_Title" xml:space="preserve"><value>Объект не поддерживается</value></data>
+  <data name="Error_UnsupportedObject_Detail" xml:space="preserve"><value>Этот тип файловой системы не поддерживается.</value></data>
+  <data name="Error_Internal_Title" xml:space="preserve"><value>Внутренняя ошибка</value></data>
+  <data name="Error_Internal_Detail" xml:space="preserve"><value>Не удалось выполнить запрос.</value></data>
+  <data name="Файлы" xml:space="preserve"><value>Файлы</value></data>
+  <data name="Файловый менеджер" xml:space="preserve"><value>Файловый менеджер</value></data>
+  <data name="Дерево каталогов" xml:space="preserve"><value>Дерево каталогов</value></data>
+  <data name="Каталоги" xml:space="preserve"><value>Каталоги</value></data>
+  <data name="Корни не настроены." xml:space="preserve"><value>Корни не настроены.</value></data>
+  <data name="Действия с файлами" xml:space="preserve"><value>Действия с файлами</value></data>
+  <data name="Обновить" xml:space="preserve"><value>Обновить</value></data>
+  <data name="Создать папку" xml:space="preserve"><value>Создать папку</value></data>
+  <data name="Переименовать" xml:space="preserve"><value>Переименовать</value></data>
+  <data name="Копировать" xml:space="preserve"><value>Копировать</value></data>
+  <data name="Переместить" xml:space="preserve"><value>Переместить</value></data>
+  <data name="Скачать" xml:space="preserve"><value>Скачать</value></data>
+  <data name="Удалить" xml:space="preserve"><value>Удалить</value></data>
+  <data name="Путь к каталогу" xml:space="preserve"><value>Путь к каталогу</value></data>
+  <data name="Загрузка каталога…" xml:space="preserve"><value>Загрузка каталога…</value></data>
+  <data name="Проверьте адрес или выберите доступный корень дерева." xml:space="preserve"><value>Проверьте адрес или выберите доступный корень дерева.</value></data>
+  <data name="К корню" xml:space="preserve"><value>К корню</value></data>
+  <data name="Папка пуста." xml:space="preserve"><value>Папка пуста.</value></data>
+  <data name="Выбрать" xml:space="preserve"><value>Выбрать</value></data>
+  <data name="Выбрать {0}" xml:space="preserve"><value>Выбрать {0}</value></data>
+  <data name="Имя" xml:space="preserve"><value>Имя</value></data>
+  <data name="Тип" xml:space="preserve"><value>Тип</value></data>
+  <data name="Размер" xml:space="preserve"><value>Размер</value></data>
+  <data name="Изменён" xml:space="preserve"><value>Изменён</value></data>
+  <data name="Этот объект нельзя открыть" xml:space="preserve"><value>Этот объект нельзя открыть</value></data>
+  <data name="Создать" xml:space="preserve"><value>Создать</value></data>
+  <data name="Имя новой папки" xml:space="preserve"><value>Имя новой папки</value></data>
+  <data name="Имя не может содержать путь или начинаться с" xml:space="preserve"><value>Имя не может содержать путь или начинаться с</value></data>
+  <data name="Переименовать «{0}»" xml:space="preserve"><value>Переименовать «{0}»</value></data>
+  <data name="Новое имя" xml:space="preserve"><value>Новое имя</value></data>
+  <data name="Объект с таким именем не будет перезаписан." xml:space="preserve"><value>Объект с таким именем не будет перезаписан.</value></data>
+  <data name="Удалить «{0}»?" xml:space="preserve"><value>Удалить «{0}»?</value></data>
+  <data name="Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым." xml:space="preserve"><value>Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым.</value></data>
+  <data name="Я понимаю, что объект нельзя будет восстановить" xml:space="preserve"><value>Я понимаю, что объект нельзя будет восстановить</value></data>
+  <data name="Отмена" xml:space="preserve"><value>Отмена</value></data>
+  <data name="Папка" xml:space="preserve"><value>Папка</value></data>
+  <data name="Файл" xml:space="preserve"><value>Файл</value></data>
+  <data name="Не поддерживается" xml:space="preserve"><value>Не поддерживается</value></data>
+  <data name="Б" xml:space="preserve"><value>Б</value></data>
+  <data name="КБ" xml:space="preserve"><value>КБ</value></data>
+  <data name="МБ" xml:space="preserve"><value>МБ</value></data>
+  <data name="ГБ" xml:space="preserve"><value>ГБ</value></data>
+  <data name="ТБ" xml:space="preserve"><value>ТБ</value></data>
+  <data name="ПБ" xml:space="preserve"><value>ПБ</value></data>
+  <data name="/с" xml:space="preserve"><value>/с</value></data>
+  <data name="Не настроен ни один корень файловой системы." xml:space="preserve"><value>Не настроен ни один корень файловой системы.</value></data>
+  <data name="Задача поставлена в очередь." xml:space="preserve"><value>Задача поставлена в очередь.</value></data>
+  <data name="Корень временно недоступен." xml:space="preserve"><value>Корень временно недоступен.</value></data>
+  <data name="Корень или каталог не найден. Возможно, объект был перемещён или удалён." xml:space="preserve"><value>Корень или каталог не найден. Возможно, объект был перемещён или удалён.</value></data>
+  <data name="Этот объект файловой системы не поддерживается." xml:space="preserve"><value>Этот объект файловой системы не поддерживается.</value></data>
+  <data name="Некорректный адрес каталога." xml:space="preserve"><value>Некорректный адрес каталога.</value></data>
+  <data name="Не удалось открыть каталог." xml:space="preserve"><value>Не удалось открыть каталог.</value></data>
+  <data name="Не удалось загрузить каталог. Проверьте доступ и повторите попытку." xml:space="preserve"><value>Не удалось загрузить каталог. Проверьте доступ и повторите попытку.</value></data>
+  <data name="Объект с таким именем уже существует." xml:space="preserve"><value>Объект с таким именем уже существует.</value></data>
+  <data name="Объект больше не существует. Обновите каталог." xml:space="preserve"><value>Объект больше не существует. Обновите каталог.</value></data>
+  <data name="Недостаточно прав для выполнения операции." xml:space="preserve"><value>Недостаточно прав для выполнения операции.</value></data>
+  <data name="Этот объект не поддерживается." xml:space="preserve"><value>Этот объект не поддерживается.</value></data>
+  <data name="Проверьте имя и выбранный объект." xml:space="preserve"><value>Проверьте имя и выбранный объект.</value></data>
+  <data name="Не удалось выполнить операцию. Повторите попытку." xml:space="preserve"><value>Не удалось выполнить операцию. Повторите попытку.</value></data>
+  <data name="Очередь задач заполнена. Дождитесь завершения текущих задач." xml:space="preserve"><value>Очередь задач заполнена. Дождитесь завершения текущих задач.</value></data>
+  <data name="Проверьте выбранные объекты и папку назначения." xml:space="preserve"><value>Проверьте выбранные объекты и папку назначения.</value></data>
+  <data name="Не удалось открыть выбранный объект или папку назначения." xml:space="preserve"><value>Не удалось открыть выбранный объект или папку назначения.</value></data>
+  <data name="Не удалось поставить задачу. Повторите попытку." xml:space="preserve"><value>Не удалось поставить задачу. Повторите попытку.</value></data>
+  <data name="Свернуть" xml:space="preserve"><value>Свернуть</value></data>
+  <data name="Раскрыть" xml:space="preserve"><value>Раскрыть</value></data>
+  <data name="(нет доступа)" xml:space="preserve"><value>(нет доступа)</value></data>
+  <data name="(недоступно)" xml:space="preserve"><value>(недоступно)</value></data>
+  <data name="Загрузка…" xml:space="preserve"><value>Загрузка…</value></data>
+  <data name="Повторить" xml:space="preserve"><value>Повторить</value></data>
+  <data name="Каталог больше не существует." xml:space="preserve"><value>Каталог больше не существует.</value></data>
+  <data name="Этот каталог не поддерживается." xml:space="preserve"><value>Этот каталог не поддерживается.</value></data>
+  <data name="Не удалось загрузить подкаталоги. Проверьте доступ и повторите попытку." xml:space="preserve"><value>Не удалось загрузить подкаталоги. Проверьте доступ и повторите попытку.</value></data>
+  <data name="Просматривайте содержимое настроенных корней файловой системы." xml:space="preserve"><value>Просматривайте содержимое настроенных корней файловой системы.</value></data>
+  <data name="Открыть файлы" xml:space="preserve"><value>Открыть файлы</value></data>
+  <data name="Меню" xml:space="preserve"><value>Меню</value></data>
+  <data name="Меню приложения" xml:space="preserve"><value>Меню приложения</value></data>
+  <data name="Настройки" xml:space="preserve"><value>Настройки</value></data>
+  <data name="Потяните, чтобы изменить ширину панели" xml:space="preserve"><value>Потяните, чтобы изменить ширину панели</value></data>
+  <data name="Подключение к серверу..." xml:space="preserve"><value>Подключение к серверу...</value></data>
+  <data name="Не удалось подключиться. Повторная попытка через" xml:space="preserve"><value>Не удалось подключиться. Повторная попытка через</value></data>
+  <data name="с." xml:space="preserve"><value>с.</value></data>
+  <data name="Не удалось восстановить подключение." xml:space="preserve"><value>Не удалось восстановить подключение.</value></data>
+  <data name="Повторите попытку или обновите страницу." xml:space="preserve"><value>Повторите попытку или обновите страницу.</value></data>
+  <data name="Сеанс приостановлен сервером." xml:space="preserve"><value>Сеанс приостановлен сервером.</value></data>
+  <data name="Возобновить" xml:space="preserve"><value>Возобновить</value></data>
+  <data name="Задачи" xml:space="preserve"><value>Задачи</value></data>
+  <data name="Очистить историю" xml:space="preserve"><value>Очистить историю</value></data>
+  <data name="Активные задачи ({0})" xml:space="preserve"><value>Активные задачи ({0})</value></data>
+  <data name="История" xml:space="preserve"><value>История</value></data>
+  <data name="История пуста." xml:space="preserve"><value>История пуста.</value></data>
+  <data name="Новее" xml:space="preserve"><value>Новее</value></data>
+  <data name="Старее" xml:space="preserve"><value>Старее</value></data>
+  <data name="Записей нет" xml:space="preserve"><value>Записей нет</value></data>
+  <data name="Очистить историю задач?" xml:space="preserve"><value>Очистить историю задач?</value></data>
+  <data name="Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются." xml:space="preserve"><value>Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются.</value></data>
+  <data name="Я понимаю, что историю нельзя восстановить" xml:space="preserve"><value>Я понимаю, что историю нельзя восстановить</value></data>
+  <data name="Очистить" xml:space="preserve"><value>Очистить</value></data>
+  <data name="Не удалось прочитать состояние задач из SQLite." xml:space="preserve"><value>Не удалось прочитать состояние задач из SQLite.</value></data>
+  <data name="Не удалось очистить историю. Повторите попытку." xml:space="preserve"><value>Не удалось очистить историю. Повторите попытку.</value></data>
+  <data name="Удалено задач: {0}." xml:space="preserve"><value>Удалено задач: {0}.</value></data>
+  <data name="Ожидает запуска." xml:space="preserve"><value>Ожидает запуска.</value></data>
+  <data name="Проверка и подсчёт" xml:space="preserve"><value>Проверка и подсчёт</value></data>
+  <data name="Проверка и подсчёт…" xml:space="preserve"><value>Проверка и подсчёт…</value></data>
+  <data name="Прогресс неизвестен" xml:space="preserve"><value>Прогресс неизвестен</value></data>
+  <data name="Выполняется…" xml:space="preserve"><value>Выполняется…</value></data>
+  <data name="Байты:" xml:space="preserve"><value>Байты:</value></data>
+  <data name="Объекты:" xml:space="preserve"><value>Объекты:</value></data>
+  <data name="Скорость:" xml:space="preserve"><value>Скорость:</value></data>
+  <data name="Результат по объектам ({0})" xml:space="preserve"><value>Результат по объектам ({0})</value></data>
+  <data name="В очереди" xml:space="preserve"><value>В очереди</value></data>
+  <data name="Выполняется" xml:space="preserve"><value>Выполняется</value></data>
+  <data name="Завершено" xml:space="preserve"><value>Завершено</value></data>
+  <data name="Ошибка" xml:space="preserve"><value>Ошибка</value></data>
+  <data name="Прервано" xml:space="preserve"><value>Прервано</value></data>
+  <data name="Копирование" xml:space="preserve"><value>Копирование</value></data>
+  <data name="Перемещение" xml:space="preserve"><value>Перемещение</value></data>
+  <data name="Ожидает" xml:space="preserve"><value>Ожидает</value></data>
+  <data name="Обработан" xml:space="preserve"><value>Обработан</value></data>
+  <data name="Не обработан" xml:space="preserve"><value>Не обработан</value></data>
+  <data name="Папка назначения" xml:space="preserve"><value>Папка назначения</value></data>
+  <data name="Текущая папка, исходные объекты и их потомки недоступны для выбора." xml:space="preserve"><value>Текущая папка, исходные объекты и их потомки недоступны для выбора.</value></data>
+  <data name="Дерево папок назначения" xml:space="preserve"><value>Дерево папок назначения</value></data>
+  <data name="Назначение:" xml:space="preserve"><value>Назначение:</value></data>
+  <data name="не выбрана" xml:space="preserve"><value>не выбрана</value></data>
+  <data name="Переместить сюда" xml:space="preserve"><value>Переместить сюда</value></data>
+  <data name="Копировать сюда" xml:space="preserve"><value>Копировать сюда</value></data>
+</root>

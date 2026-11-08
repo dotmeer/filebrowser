@@ -1,9 +1,10 @@
 using System.Globalization;
 using dotmeer.filebrowser.FileSystem;
+using Microsoft.Extensions.Localization;
 
 namespace dotmeer.filebrowser.Tasks;
 
-public static class TaskPresentation
+public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer)
 {
     private static readonly string[] ByteUnits = ["КБ", "МБ", "ГБ", "ТБ", "ПБ"];
 
@@ -23,7 +24,7 @@ public static class TaskPresentation
         return (int)Math.Clamp(percent, 0, 100);
     }
 
-    public static string FormatBytes(long? bytes)
+    public string FormatBytes(long? bytes)
     {
         if (bytes is null)
         {
@@ -32,7 +33,7 @@ public static class TaskPresentation
 
         if (bytes < 1024)
         {
-            return $"{bytes.Value.ToString(CultureInfo.InvariantCulture)} Б";
+            return string.Create(CultureInfo.InvariantCulture, $"{bytes.Value} {localizer["Б"]}");
         }
 
         var value = (double)bytes.Value;
@@ -43,30 +44,30 @@ public static class TaskPresentation
             unit++;
         } while (value >= 1024 && unit < ByteUnits.Length - 1);
 
-        return string.Create(CultureInfo.InvariantCulture, $"{value:0.#} {ByteUnits[unit]}");
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0.#} {localizer[ByteUnits[unit]]}");
     }
 
-    public static string FormatSpeed(double bytesPerSecond)
+    public string FormatSpeed(double bytesPerSecond)
     {
         if (bytesPerSecond <= 0)
         {
-            return "0 Б/с";
+            return FormatBytes(0) + localizer["/с"];
         }
 
-        return $"{FormatBytes((long)Math.Round(bytesPerSecond))}/с";
+        return FormatBytes((long)Math.Round(bytesPerSecond)) + localizer["/с"];
     }
 
-    public static string FormatReference(FileRef file) =>
+    public string FormatReference(FileRef file) =>
         string.IsNullOrEmpty(file.Path) ? file.Root : $"{file.Root}/{file.Path}";
 
-    public static string StatusLabel(FileTaskStatus status) => status switch
+    public string StatusLabel(FileTaskStatus status) => status switch
     {
-        FileTaskStatus.Queued => "В очереди",
-        FileTaskStatus.Scanning => "Проверка и подсчёт",
-        FileTaskStatus.Running => "Выполняется",
-        FileTaskStatus.Completed => "Завершено",
-        FileTaskStatus.Failed => "Ошибка",
-        FileTaskStatus.Interrupted => "Прервано",
+        FileTaskStatus.Queued => localizer["В очереди"],
+        FileTaskStatus.Scanning => localizer["Проверка и подсчёт"],
+        FileTaskStatus.Running => localizer["Выполняется"],
+        FileTaskStatus.Completed => localizer["Завершено"],
+        FileTaskStatus.Failed => localizer["Ошибка"],
+        FileTaskStatus.Interrupted => localizer["Прервано"],
         _ => status.ToString()
     };
 
@@ -78,19 +79,19 @@ public static class TaskPresentation
         _ => "task-status-active"
     };
 
-    public static string TypeLabel(FileTaskType type) => type switch
+    public string TypeLabel(FileTaskType type) => type switch
     {
-        FileTaskType.Copy => "Копирование",
-        FileTaskType.Move => "Перемещение",
+        FileTaskType.Copy => localizer["Копирование"],
+        FileTaskType.Move => localizer["Перемещение"],
         _ => type.ToString()
     };
 
-    public static string ItemStatusLabel(string status) => status switch
+    public string ItemStatusLabel(string status) => status switch
     {
-        "pending" => "Ожидает",
-        "completed" => "Обработан",
-        "failed" => "Ошибка",
-        "not_processed" => "Не обработан",
+        "pending" => localizer["Ожидает"],
+        "completed" => localizer["Обработан"],
+        "failed" => localizer["Ошибка"],
+        "not_processed" => localizer["Не обработан"],
         _ => status
     };
 

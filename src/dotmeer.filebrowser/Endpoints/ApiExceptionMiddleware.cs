@@ -2,12 +2,16 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.Extensions.Localization;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
 
 namespace dotmeer.filebrowser.Endpoints;
 
-public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExceptionMiddleware> logger)
+public sealed class ApiExceptionMiddleware(
+    RequestDelegate next,
+    ILogger<ApiExceptionMiddleware> logger,
+    IStringLocalizer<SharedResources> localizer)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -25,21 +29,21 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
                 ["RequestPath"] = context.Request.Path.Value
             });
 
-            var (status, code, title, detail) = exception switch
+            var (status, code, titleKey, detailKey) = exception switch
             {
-                RootUnavailableException => (StatusCodes.Status503ServiceUnavailable, "root_unavailable", "Корень недоступен", "Файловый корень временно недоступен."),
-                FileSystemObjectNotFoundException => (StatusCodes.Status404NotFound, "not_found", "Объект не найден", "Запрошенный корень или объект не найден."),
-                FileSystemNameConflictException => (StatusCodes.Status409Conflict, "name_conflict", "Конфликт имени", "Объект с таким именем уже существует."),
-                FileSystemAccessDeniedException => (StatusCodes.Status403Forbidden, "access_denied", "Нет доступа", "Недостаточно прав для выполнения операции."),
-                AntiforgeryRequestRejectedException or AntiforgeryValidationException => (StatusCodes.Status400BadRequest, "antiforgery_validation_failed", "Запрос отклонён", "Не удалось подтвердить защитный токен запроса."),
-                FileTaskNotFoundException => (StatusCodes.Status404NotFound, "task_not_found", "Задача не найдена", "Запрошенная задача не найдена."),
-                FileTaskQueueFullException => (StatusCodes.Status429TooManyRequests, "task_queue_full", "Очередь заполнена", "Очередь задач заполнена. Повторите попытку позже."),
-                ArgumentOutOfRangeException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте параметры запроса."),
-                ArgumentException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте параметры запроса."),
-                UnsupportedFileSystemObjectException => (StatusCodes.Status422UnprocessableEntity, "unsupported_object", "Объект не поддерживается", "Этот тип файловой системы не поддерживается."),
-                InvalidFileSystemRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте root и относительный path."),
-                FileSystemResolutionException => (StatusCodes.Status400BadRequest, "invalid_request", "Некорректный запрос", "Проверьте root и относительный path."),
-                _ => (StatusCodes.Status500InternalServerError, "internal_error", "Внутренняя ошибка", "Не удалось выполнить запрос.")
+                RootUnavailableException => (StatusCodes.Status503ServiceUnavailable, "root_unavailable", "Error_RootUnavailable_Title", "Error_RootUnavailable_Detail"),
+                FileSystemObjectNotFoundException => (StatusCodes.Status404NotFound, "not_found", "Error_NotFound_Title", "Error_NotFound_Detail"),
+                FileSystemNameConflictException => (StatusCodes.Status409Conflict, "name_conflict", "Error_NameConflict_Title", "Error_NameConflict_Detail"),
+                FileSystemAccessDeniedException => (StatusCodes.Status403Forbidden, "access_denied", "Error_AccessDenied_Title", "Error_AccessDenied_Detail"),
+                AntiforgeryRequestRejectedException or AntiforgeryValidationException => (StatusCodes.Status400BadRequest, "antiforgery_validation_failed", "Error_Antiforgery_Title", "Error_Antiforgery_Detail"),
+                FileTaskNotFoundException => (StatusCodes.Status404NotFound, "task_not_found", "Error_TaskNotFound_Title", "Error_TaskNotFound_Detail"),
+                FileTaskQueueFullException => (StatusCodes.Status429TooManyRequests, "task_queue_full", "Error_TaskQueueFull_Title", "Error_TaskQueueFull_Detail"),
+                ArgumentOutOfRangeException => (StatusCodes.Status400BadRequest, "invalid_request", "Error_InvalidRequest_Title", "Error_InvalidRequest_Detail"),
+                ArgumentException => (StatusCodes.Status400BadRequest, "invalid_request", "Error_InvalidRequest_Title", "Error_InvalidRequest_Detail"),
+                UnsupportedFileSystemObjectException => (StatusCodes.Status422UnprocessableEntity, "unsupported_object", "Error_UnsupportedObject_Title", "Error_UnsupportedObject_Detail"),
+                InvalidFileSystemRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "Error_InvalidRequest_Title", "Error_InvalidPath_Detail"),
+                FileSystemResolutionException => (StatusCodes.Status400BadRequest, "invalid_request", "Error_InvalidRequest_Title", "Error_InvalidPath_Detail"),
+                _ => (StatusCodes.Status500InternalServerError, "internal_error", "Error_Internal_Title", "Error_Internal_Detail")
             };
 
             if (status >= 500)
@@ -62,8 +66,8 @@ public sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiExce
             var problem = new ProblemDetails
             {
                 Status = status,
-                Title = title,
-                Detail = detail,
+                Title = localizer[titleKey],
+                Detail = localizer[detailKey],
                 Instance = context.Request.Path
             };
             problem.Extensions["code"] = code;

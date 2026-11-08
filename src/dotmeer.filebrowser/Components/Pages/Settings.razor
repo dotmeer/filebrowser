@@ -1,35 +1,51 @@
 @page "/settings"
+@using dotmeer.filebrowser.Settings
+@inject IStringLocalizer<SharedResources> L
+@inject AppSettingsService AppSettings
 
-<PageTitle>Настройки</PageTitle>
+<PageTitle>@L["Settings_Title"]</PageTitle>
 
 <section class="settings-page">
     <div class="settings-header">
-        <button class="btn btn-outline-secondary" type="button" data-nav-back>Назад</button>
-        <h1>Настройки</h1>
+        <button class="btn btn-outline-secondary" type="button" data-nav-back>@L["Settings_Back"]</button>
+        <h1>@L["Settings_Title"]</h1>
     </div>
 
+    <section class="settings-section" aria-labelledby="language-heading">
+        <h2 id="language-heading">@L["Settings_Language"]</h2>
+        <form method="post" action="/settings/language" class="settings-language-form">
+            <AntiforgeryToken />
+            <label class="visually-hidden" for="language-select">@L["Settings_Language"]</label>
+            <select id="language-select" name="language" class="form-select settings-language">
+                <option value="en" selected="@(AppSettings.GetLanguage() == "en")">@L["Language_English"]</option>
+                <option value="ru" selected="@(AppSettings.GetLanguage() == "ru")">@L["Language_Russian"]</option>
+            </select>
+            <button class="btn btn-outline-primary" type="submit">@L["Settings_SaveLanguage"]</button>
+        </form>
+    </section>
+
     <section class="settings-section" aria-labelledby="theme-heading">
-        <h2 id="theme-heading">Оформление</h2>
+        <h2 id="theme-heading">@L["Settings_Appearance"]</h2>
         <fieldset class="theme-options">
-            <legend>Тема</legend>
+            <legend>@L["Settings_Theme"]</legend>
             <label class="theme-option">
                 <input type="radio" name="theme-preference" value="system" />
-                <span>Системная</span>
+                <span>@L["Theme_System"]</span>
             </label>
             <label class="theme-option">
                 <input type="radio" name="theme-preference" value="light" />
-                <span>Светлая</span>
+                <span>@L["Theme_Light"]</span>
             </label>
             <label class="theme-option">
                 <input type="radio" name="theme-preference" value="dark" />
-                <span>Тёмная</span>
+                <span>@L["Theme_Dark"]</span>
             </label>
         </fieldset>
     </section>
 
     <section class="settings-section" aria-labelledby="config-heading">
-        <h2 id="config-heading">Конфигурация сервера</h2>
-        <p>Настройки приложения задаются в файле <code>config.yaml</code>.</p>
-        <p>Измените файл на сервере и перезапустите приложение, чтобы применить изменения.</p>
+        <h2 id="config-heading">@L["Settings_ServerConfiguration"]</h2>
+        <p>@L["Settings_ConfigurationDescription1"] <code>config.yaml</code>.</p>
+        <p>@L["Settings_ConfigurationDescription2"]</p>
     </section>
 </section>

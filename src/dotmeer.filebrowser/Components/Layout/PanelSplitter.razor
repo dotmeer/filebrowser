@@ -1,8 +1,9 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JavaScript
+@inject IStringLocalizer<SharedResources> L
 
 <div class="splitter" @ref="_element" role="separator" aria-orientation="vertical"
-     title="Потяните, чтобы изменить ширину панели" data-target="@Side"></div>
+     title="@L["Потяните, чтобы изменить ширину панели"]" data-target="@Side"></div>
 
 @code {
     [Parameter, EditorRequired] public string Side { get; set; } = "prev";

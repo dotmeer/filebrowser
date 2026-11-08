@@ -8,8 +8,9 @@
 @inject TaskDispatcher Dispatcher
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
+@inject IStringLocalizer<SharedResources> L
 
-<PageTitle>Файлы</PageTitle>
+<PageTitle>@L["Файлы"]</PageTitle>
 
 <section class="browse-page">
     @if (_taskStatus is not null)
@@ -18,11 +19,11 @@
     }
 
     <div class="browse-layout">
-        <aside class="directory-sidebar" aria-label="Дерево каталогов">
-            <h2>Каталоги</h2>
+        <aside class="directory-sidebar" aria-label="@L["Дерево каталогов"]">
+            <h2>@L["Каталоги"]</h2>
             @if (_roots.Count == 0 && !_rootsLoading)
             {
-                <p class="muted">Корни не настроены.</p>
+                <p class="muted">@L["Корни не настроены."]</p>
             }
             else
             {
@@ -38,38 +39,38 @@
         <PanelSplitter Side="prev" />
 
         <main class="directory-content">
-            <div class="browse-actions" aria-label="Действия с файлами">
+            <div class="browse-actions" aria-label="@L["Действия с файлами"]">
                 <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
-                    Обновить
+                    @L["Обновить"]
                 </button>
                 <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog" disabled="@(_loading || _listing is null)">
-                    Создать папку
+                    @L["Создать папку"]
                 </button>
                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
-                    Переименовать
+                    @L["Переименовать"]
                 </button>
                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected" disabled="@(!CanStartTask || _loading)">
-                    Копировать
+                    @L["Копировать"]
                 </button>
                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
-                    Переместить
+                    @L["Переместить"]
                 </button>
                 @if (SelectedFileDownloadUrl is not null)
                 {
-                    <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>Скачать</a>
+                    <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>@L["Скачать"]</a>
                 }
                 else
                 {
-                    <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">Скачать</a>
+                    <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
                 }
                 <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
-                    Удалить
+                    @L["Удалить"]
                 </button>
             </div>
 
             @if (_listing is not null)
             {
-                <nav class="breadcrumbs" aria-label="Путь к каталогу">
+                <nav class="breadcrumbs" aria-label="@L["Путь к каталогу"]">
                     <button type="button" @onclick="() => NavigateToAsync(new FileRef(_listing.Root, string.Empty))">
                         @_listing.Root
                     </button>
@@ -85,19 +86,19 @@
 
             @if (_loading)
             {
-                <div class="browse-state" role="status">Загрузка каталога…</div>
+                <div class="browse-state" role="status">@L["Загрузка каталога…"]</div>
             }
             else if (_error is not null)
             {
                 <div class="browse-state browse-error" role="alert">
                     <strong>@_error</strong>
-                    <p>Проверьте адрес или выберите доступный корень дерева.</p>
-                    <button class="btn btn-outline-primary" type="button" @onclick="GoToFirstRootAsync">К корню</button>
+                    <p>@L["Проверьте адрес или выберите доступный корень дерева."]</p>
+                    <button class="btn btn-outline-primary" type="button" @onclick="GoToFirstRootAsync">@L["К корню"]</button>
                 </div>
             }
             else if (_listing is not null && _listing.Entries.Count == 0)
             {
-                <div class="browse-state">Папка пуста.</div>
+                <div class="browse-state">@L["Папка пуста."]</div>
             }
             else if (_listing is not null)
             {
@@ -105,11 +106,11 @@
                     <table class="table file-table">
                         <thead>
                             <tr>
-                                <th scope="col"><span class="visually-hidden">Выбрать</span></th>
-                                <th scope="col">Имя</th>
-                                <th scope="col">Тип</th>
-                                <th scope="col">Размер</th>
-                                <th scope="col">Изменён</th>
+                                <th scope="col"><span class="visually-hidden">@L["Выбрать"]</span></th>
+                                <th scope="col">@L["Имя"]</th>
+                                <th scope="col">@L["Тип"]</th>
+                                <th scope="col">@L["Размер"]</th>
+                                <th scope="col">@L["Изменён"]</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -117,7 +118,7 @@
                             {
                                 <tr @key="entry.Path" @oncontextmenu:preventDefault @oncontextmenu="args => OpenContextMenu(entry, args)">
                                     <td>
-                                        <input class="form-check-input" type="checkbox" aria-label="Выбрать @entry.Name"
+                                        <input class="form-check-input" type="checkbox" aria-label="@L["Выбрать {0}", entry.Name]"
                                                checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind == "unsupported")"
                                                @onchange="args => ToggleSelection(entry.Path, args.Value is true)" />
                                     </td>
@@ -131,7 +132,7 @@
                                         }
                                         else if (entry.Kind == "unsupported")
                                         {
-                                            <span class="unsupported-entry" title="Этот объект нельзя открыть">
+                                            <span class="unsupported-entry" title="@L["Этот объект нельзя открыть"]">
                                                 <span aria-hidden="true">⚠</span> @entry.Name
                                             </span>
                                         }
@@ -160,12 +161,12 @@
         <div class="file-context-menu" role="menu" style="@($"left: {_contextX}px; top: {_contextY}px;")">
             @if (_contextEntry.Kind == "file")
             {
-                <a class="context-menu-link" href="@GetDownloadUrl(_contextEntry)" download role="menuitem">Скачать</a>
+                <a class="context-menu-link" href="@GetDownloadUrl(_contextEntry)" download role="menuitem">@L["Скачать"]</a>
             }
-            <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">Переименовать</button>
-            <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">Копировать</button>
-            <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">Переместить</button>
-            <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">Удалить</button>
+            <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
+            <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">@L["Копировать"]</button>
+            <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">@L["Переместить"]</button>
+            <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">@L["Удалить"]</button>
         </div>
     }
 
@@ -175,25 +176,25 @@
             <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="file-dialog-title">
                 @if (_dialog == DialogKind.Create)
                 {
-                    <h2 id="file-dialog-title">Создать папку</h2>
-                    <label for="new-folder-name">Имя новой папки</label>
+                    <h2 id="file-dialog-title">@L["Создать папку"]</h2>
+                    <label for="new-folder-name">@L["Имя новой папки"]</label>
                     <input id="new-folder-name" class="form-control" @bind="_newFolderName" disabled="@_operationInProgress" />
-                    <p class="dialog-hint">Имя не может содержать путь или начинаться с <code>.filebrowser-</code>.</p>
+                    <p class="dialog-hint">@L["Имя не может содержать путь или начинаться с"] <code>.filebrowser-</code>.</p>
                 }
                 else if (_dialog == DialogKind.Rename && _dialogTarget is not null)
                 {
-                    <h2 id="file-dialog-title">Переименовать «@_dialogTarget.Name»</h2>
-                    <label for="new-name">Новое имя</label>
+                    <h2 id="file-dialog-title">@L["Переименовать «{0}»", _dialogTarget.Name]</h2>
+                    <label for="new-name">@L["Новое имя"]</label>
                     <input id="new-name" class="form-control" @bind="_newName" disabled="@_operationInProgress" />
-                    <p class="dialog-hint">Объект с таким именем не будет перезаписан.</p>
+                    <p class="dialog-hint">@L["Объект с таким именем не будет перезаписан."]</p>
                 }
                 else if (_dialog == DialogKind.Delete && _dialogTarget is not null)
                 {
-                    <h2 id="file-dialog-title">Удалить «@_dialogTarget.Name»?</h2>
-                    <p class="dialog-warning">Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым.</p>
+                    <h2 id="file-dialog-title">@L["Удалить «{0}»?", _dialogTarget.Name]</h2>
+                    <p class="dialog-warning">@L["Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым."]</p>
                     <div class="form-check">
                         <input id="confirm-delete" class="form-check-input" type="checkbox" @bind="_deleteConfirmed" disabled="@_operationInProgress" />
-                        <label class="form-check-label" for="confirm-delete">Я понимаю, что объект нельзя будет восстановить</label>
+                        <label class="form-check-label" for="confirm-delete">@L["Я понимаю, что объект нельзя будет восстановить"]</label>
                     </div>
                 }
 
@@ -203,18 +204,18 @@
                 }
 
                 <div class="dialog-actions">
-                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseDialog" disabled="@_operationInProgress">Отмена</button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseDialog" disabled="@_operationInProgress">@L["Отмена"]</button>
                     @if (_dialog == DialogKind.Create)
                     {
-                        <button class="btn btn-primary" type="button" @onclick="CreateDirectoryAsync" disabled="@_operationInProgress">Создать</button>
+                        <button class="btn btn-primary" type="button" @onclick="CreateDirectoryAsync" disabled="@_operationInProgress">@L["Создать"]</button>
                     }
                     else if (_dialog == DialogKind.Rename)
                     {
-                        <button class="btn btn-primary" type="button" @onclick="RenameAsync" disabled="@_operationInProgress">Переименовать</button>
+                        <button class="btn btn-primary" type="button" @onclick="RenameAsync" disabled="@_operationInProgress">@L["Переименовать"]</button>
                     }
                     else
                     {
-                        <button class="btn btn-danger" type="button" @onclick="DeleteAsync" disabled="@(!_deleteConfirmed || _operationInProgress)">Удалить</button>
+                        <button class="btn btn-danger" type="button" @onclick="DeleteAsync" disabled="@(!_deleteConfirmed || _operationInProgress)">@L["Удалить"]</button>
                     }
                 </div>
             </section>
@@ -317,7 +318,7 @@
             var root = RootQuery ?? _roots.FirstOrDefault()?.Name;
             if (string.IsNullOrWhiteSpace(root))
             {
-                _error = "Не настроен ни один корень файловой системы.";
+                _error = L["Не настроен ни один корень файловой системы."];
                 _listing = null;
                 return;
             }
@@ -459,7 +460,7 @@
         try
         {
             await Task.Run(async () => await Dispatcher.EnqueueAsync(type, sources, destination));
-            _taskStatus = "Задача поставлена в очередь.";
+            _taskStatus = L["Задача поставлена в очередь."];
             _taskType = null;
             _taskSources = [];
         }
@@ -579,14 +580,14 @@
         }
     }
 
-    private static string GetKindLabel(string kind) => kind switch
+    private string GetKindLabel(string kind) => kind switch
     {
-        "directory" => "Папка",
-        "file" => "Файл",
-        _ => "Не поддерживается"
+        "directory" => L["Папка"],
+        "file" => L["Файл"],
+        _ => L["Не поддерживается"]
     };
 
-    private static string FormatSize(long? size)
+    private string FormatSize(long? size)
     {
         if (size is null)
         {
@@ -594,7 +595,7 @@
         }
         if (size < 1024)
         {
-            return $"{size} Б";
+            return string.Create(CultureInfo.InvariantCulture, $"{size.Value} {L["Б"]}");
         }
         var units = new[] { "КБ", "МБ", "ГБ", "ТБ" };
         var value = (double)size.Value;
@@ -604,37 +605,37 @@
             value /= 1024;
             unit++;
         } while (value >= 1024 && unit < units.Length - 1);
-        return $"{value:0.#} {units[unit]}";
+        return string.Create(CultureInfo.InvariantCulture, $"{value:0.#} {L[units[unit]]}");
     }
 
-    private static string GetSafeError(Exception exception) => exception switch
+    private string GetSafeError(Exception exception) => exception switch
     {
-        RootUnavailableException => "Корень временно недоступен.",
-        FileSystemObjectNotFoundException => "Корень или каталог не найден. Возможно, объект был перемещён или удалён.",
-        UnsupportedFileSystemObjectException => "Этот объект файловой системы не поддерживается.",
-        InvalidFileSystemRequestException => "Некорректный адрес каталога.",
-        FileSystemResolutionException => "Не удалось открыть каталог.",
-        _ => "Не удалось загрузить каталог. Проверьте доступ и повторите попытку."
+        RootUnavailableException => L["Корень временно недоступен."],
+        FileSystemObjectNotFoundException => L["Корень или каталог не найден. Возможно, объект был перемещён или удалён."],
+        UnsupportedFileSystemObjectException => L["Этот объект файловой системы не поддерживается."],
+        InvalidFileSystemRequestException => L["Некорректный адрес каталога."],
+        FileSystemResolutionException => L["Не удалось открыть каталог."],
+        _ => L["Не удалось загрузить каталог. Проверьте доступ и повторите попытку."]
     };
 
-    private static string GetSafeMutationError(Exception exception) => exception switch
+    private string GetSafeMutationError(Exception exception) => exception switch
     {
-        FileSystemNameConflictException => "Объект с таким именем уже существует.",
-        FileSystemObjectNotFoundException => "Объект больше не существует. Обновите каталог.",
-        RootUnavailableException => "Корень временно недоступен.",
-        FileSystemAccessDeniedException => "Недостаточно прав для выполнения операции.",
-        UnsupportedFileSystemObjectException => "Этот объект не поддерживается.",
-        InvalidFileSystemRequestException => "Проверьте имя и выбранный объект.",
-        _ => "Не удалось выполнить операцию. Повторите попытку."
+        FileSystemNameConflictException => L["Объект с таким именем уже существует."],
+        FileSystemObjectNotFoundException => L["Объект больше не существует. Обновите каталог."],
+        RootUnavailableException => L["Корень временно недоступен."],
+        FileSystemAccessDeniedException => L["Недостаточно прав для выполнения операции."],
+        UnsupportedFileSystemObjectException => L["Этот объект не поддерживается."],
+        InvalidFileSystemRequestException => L["Проверьте имя и выбранный объект."],
+        _ => L["Не удалось выполнить операцию. Повторите попытку."]
     };
 
-    private static string GetSafeTaskError(Exception exception) => exception switch
+    private string GetSafeTaskError(Exception exception) => exception switch
     {
-        FileTaskQueueFullException => "Очередь задач заполнена. Дождитесь завершения текущих задач.",
-        InvalidFileSystemRequestException => "Проверьте выбранные объекты и папку назначения.",
-        FileSystemResolutionException => "Не удалось открыть выбранный объект или папку назначения.",
-        ArgumentException => "Проверьте выбранные объекты и папку назначения.",
-        _ => "Не удалось поставить задачу. Повторите попытку."
+        FileTaskQueueFullException => L["Очередь задач заполнена. Дождитесь завершения текущих задач."],
+        InvalidFileSystemRequestException => L["Проверьте выбранные объекты и папку назначения."],
+        FileSystemResolutionException => L["Не удалось открыть выбранный объект или папку назначения."],
+        ArgumentException => L["Проверьте выбранные объекты и папку назначения."],
+        _ => L["Не удалось поставить задачу. Повторите попытку."]
     };
 
     private sealed record Breadcrumb(string Name, string Path);

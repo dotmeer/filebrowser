@@ -221,7 +221,8 @@ public sealed class DownloadTests
                 await context.Response.WriteAsync("partial", context.RequestAborted);
                 throw new IOException("Сбой чтения файла.");
             },
-            NullLogger<ApiExceptionMiddleware>.Instance);
+            NullLogger<ApiExceptionMiddleware>.Instance,
+            new PassthroughLocalizer<dotmeer.filebrowser.SharedResources>());
         var context = new DefaultHttpContext();
         context.Request.Path = "/api/fs/download";
         var responseFeature = new StartedResponseFeature();

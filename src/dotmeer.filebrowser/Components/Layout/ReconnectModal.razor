@@ -1,4 +1,6 @@
-﻿<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
+﻿@inject IStringLocalizer<SharedResources> L
+
+<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
 
 <dialog id="components-reconnect-modal" data-nosnippet>
     <div class="components-reconnect-container">
@@ -7,25 +9,25 @@
             <div></div>
         </div>
         <p class="components-reconnect-first-attempt-visible">
-            Подключение к серверу...
+            @L["Подключение к серверу..."]
         </p>
         <p class="components-reconnect-repeated-attempt-visible">
-            Не удалось подключиться. Повторная попытка через <span id="components-seconds-to-next-attempt"></span> с.
+            @L["Не удалось подключиться. Повторная попытка через"] <span id="components-seconds-to-next-attempt"></span> @L["с."]
         </p>
         <p class="components-reconnect-failed-visible">
-            Не удалось восстановить подключение.<br />Повторите попытку или обновите страницу.
+            @L["Не удалось восстановить подключение."]<br />@L["Повторите попытку или обновите страницу."]
         </p>
         <button id="components-reconnect-button" class="components-reconnect-failed-visible">
-            Повторить
+            @L["Повторить"]
         </button>
         <p class="components-pause-visible">
-            Сеанс приостановлен сервером.
+            @L["Сеанс приостановлен сервером."]
         </p>
         <p class="components-resume-failed-visible">
-            Не удалось возобновить сеанс.<br />Повторите попытку или обновите страницу.
+            @L["Не удалось восстановить подключение."]<br />@L["Повторите попытку или обновите страницу."]
         </p>
         <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
-            Возобновить
+            @L["Возобновить"]
         </button>
     </div>
 </dialog>

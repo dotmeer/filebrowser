@@ -517,6 +517,18 @@ h1:focus {
     border: 0;
 }
 
+.settings-language-form {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+    .settings-language-form .form-select {
+        width: auto;
+        min-width: 12rem;
+    }
+
     .theme-options legend {
         padding: 0;
         margin-bottom: 0.6rem;

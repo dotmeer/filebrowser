@@ -111,6 +111,22 @@ public sealed class TaskDatabase
             insertMigration.ExecuteNonQuery();
         }
 
+        if (!MigrationApplied(connection, transaction, 2))
+        {
+            Execute(connection, transaction, """
+                CREATE TABLE app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """);
+            using var insertMigration = connection.CreateCommand();
+            insertMigration.Transaction = transaction;
+            insertMigration.CommandText = "INSERT INTO schema_migrations(version, applied_at_utc) VALUES ($version, $appliedAtUtc);";
+            insertMigration.Parameters.AddWithValue("$version", 2);
+            insertMigration.Parameters.AddWithValue("$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O"));
+            insertMigration.ExecuteNonQuery();
+        }
+
         transaction.Commit();
     }
 

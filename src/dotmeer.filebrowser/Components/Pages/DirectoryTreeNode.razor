@@ -1,11 +1,12 @@
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
+@inject IStringLocalizer<SharedResources> L
 
 <li class="tree-node">
     <div class="tree-entry">
         @if (IsRoot || CanExpand)
         {
-            <button class="tree-toggle" type="button" aria-label="@(Expanded ? "Свернуть" : "Раскрыть") @Name"
+            <button class="tree-toggle" type="button" aria-label="@(Expanded ? L["Свернуть"] : L["Раскрыть"]) @Name"
                     aria-expanded="@Expanded" disabled="@_loading" @onclick="ToggleAsync">
                 @(Expanded ? "▾" : "▸")
             </button>
@@ -18,7 +19,7 @@
             @Name
             @if (!Available)
             {
-                <span class="tree-unavailable">(нет доступа)</span>
+                <span class="tree-unavailable">@L["(нет доступа)"]</span>
             }
         </button>
     </div>
@@ -26,12 +27,12 @@
     {
         @if (_loading)
         {
-            <div class="tree-message">Загрузка…</div>
+            <div class="tree-message">@L["Загрузка…"]</div>
         }
         else if (_error is not null)
         {
             <div class="tree-message tree-error">@_error</div>
-            <button class="tree-retry" type="button" @onclick="LoadChildrenAsync">Повторить</button>
+            <button class="tree-retry" type="button" @onclick="LoadChildrenAsync">@L["Повторить"]</button>
         }
         else if (_children is { Count: > 0 })
         {
@@ -88,10 +89,10 @@
         {
             _error = exception switch
             {
-                RootUnavailableException => "Корень временно недоступен.",
-                FileSystemObjectNotFoundException => "Каталог больше не существует.",
-                UnsupportedFileSystemObjectException => "Этот каталог не поддерживается.",
-                _ => "Не удалось загрузить подкаталоги. Проверьте доступ и повторите попытку."
+                RootUnavailableException => L["Корень временно недоступен."],
+                FileSystemObjectNotFoundException => L["Каталог больше не существует."],
+                UnsupportedFileSystemObjectException => L["Этот каталог не поддерживается."],
+                _ => L["Не удалось загрузить подкаталоги. Проверьте доступ и повторите попытку."]
             };
         }
         finally

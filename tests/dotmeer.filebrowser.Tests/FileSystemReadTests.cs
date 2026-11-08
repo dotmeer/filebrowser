@@ -164,9 +164,9 @@ public sealed class FileSystemReadTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"Status: {response.StatusCode}; body: {html}");
-        Assert.Contains("Файл", html);
+        Assert.Contains("File", html);
         Assert.Contains("note.txt", html);
-        Assert.Contains("Обновить", html);
+        Assert.Contains("Refresh", html);
         Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -181,11 +181,11 @@ public sealed class FileSystemReadTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("config.yaml", html);
-        Assert.Contains("перезапустите приложение", html);
-        Assert.Contains("<legend>Тема</legend>", html);
-        Assert.Contains("Системная", html);
-        Assert.Contains("Светлая", html);
-        Assert.Contains("Тёмная", html);
+        Assert.Contains("restart the application", html);
+        Assert.Contains("<legend>Theme</legend>", html);
+        Assert.Contains("System", html);
+        Assert.Contains("Light", html);
+        Assert.Contains("Dark", html);
         Assert.Contains("name=\"theme-preference\"", html);
         Assert.Contains("data-nav-back", html);
     }
@@ -200,7 +200,7 @@ public sealed class FileSystemReadTests
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Папка пуста.", html);
+        Assert.Contains("Folder is empty.", html);
     }
 
     [Fact]
@@ -214,8 +214,8 @@ public sealed class FileSystemReadTests
         var visibleText = WebUtility.HtmlDecode(html);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("не найден", visibleText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("К корню", visibleText);
+        Assert.Contains("not found", visibleText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Go to root", visibleText);
         Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
     }
 
