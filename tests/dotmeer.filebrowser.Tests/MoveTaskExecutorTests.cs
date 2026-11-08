@@ -64,12 +64,13 @@ public sealed class MoveTaskExecutorTests
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
         var scanned = await repository.GetAsync(task.Id);
 
-        Assert.Contains("name_conflict", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         Assert.Equal("source", File.ReadAllText(Path.Combine(workspace.RootPath, "note.txt")));
         Assert.Equal("existing", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
         Assert.NotNull(scanned);
         Assert.Equal(FileTaskStatus.Scanning, scanned.Status);
         Assert.Equal("failed", Assert.Single(scanned.Items).Status);
+        Assert.Equal(FileTaskErrorCodes.NameConflict, Assert.Single(scanned.Items).Error);
         Assert.Empty(await repository.GetTemporaryArtifactsAsync());
     }
 
@@ -89,7 +90,9 @@ public sealed class MoveTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("внутри источника", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.DestinationInsideSource, Assert.Single(scanned!.Items).Error);
         Assert.True(File.Exists(Path.Combine(sourceDirectory, "note.txt")));
         Assert.False(Directory.Exists(Path.Combine(sourceDirectory, "nested", "source-directory")));
     }
@@ -114,8 +117,12 @@ public sealed class MoveTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("name_conflict", exception.SafeMessage);
-        Assert.Contains("одной родительской", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.NotNull(scanned);
+        Assert.Equal(
+            [FileTaskErrorCodes.NameConflict, FileTaskErrorCodes.SourcesNotSameParent],
+            scanned.Items.OrderBy(item => item.Source.Path, StringComparer.Ordinal).Select(item => item.Error!).ToArray());
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "first.txt")));
         Assert.True(File.Exists(Path.Combine(other, "second.txt")));
         Assert.False(File.Exists(Path.Combine(destinationDirectory, "second.txt")));
@@ -143,7 +150,7 @@ public sealed class MoveTaskExecutorTests
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
         var running = await repository.GetAsync(task.Id);
 
-        Assert.Contains("ошибка перемещения", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
         Assert.True(File.Exists(Path.Combine(destinationDirectory, "a.txt")));
         Assert.False(File.Exists(Path.Combine(workspace.RootPath, "a.txt")));
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "b.txt")));
@@ -168,7 +175,7 @@ public sealed class MoveTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("ошибка перемещения", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
         Assert.False(File.Exists(Path.Combine(destinationDirectory, "note.txt")));
         Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
@@ -221,8 +228,7 @@ public sealed class MoveTaskExecutorTests
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
         var running = await repository.GetAsync(task.Id);
 
-        Assert.Contains("назначение создано", exception.SafeMessage);
-        Assert.Contains("мог сохраниться", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.MoveSourceNotDeleted, exception.SafeCode);
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
         Assert.Equal("content", File.ReadAllText(Path.Combine(destinationDirectory, "note.txt")));
         Assert.NotNull(running);

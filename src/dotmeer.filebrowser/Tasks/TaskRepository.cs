@@ -215,7 +215,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             UPDATE tasks
             SET status = 'interrupted',
                 stage = 'interrupted',
-                error = 'Задача прервана перезапуском приложения.',
+                error = 'task_interrupted_restart',
                 updated_at_utc = $updatedAtUtc,
                 completed_at_utc = $updatedAtUtc
             WHERE status IN ('queued', 'scanning', 'running');

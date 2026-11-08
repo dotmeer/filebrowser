@@ -28,7 +28,7 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
                     FileTransferEngine.Publish(artifact.PhysicalPath, entry.FinalPhysicalPath, entry.SourcePath.IsDirectory);
                     await transfer.RemoveArtifactAsync(artifact, cancellationToken);
                     artifact = null;
-                    DeleteSourceAfterPublish(entry.Source, entry.SourcePath, cancellationToken);
+                    DeleteSourceAfterPublish(entry.SourcePath, cancellationToken);
                 }
 
                 await transfer.CompleteItemAsync(task.Id, entry, cancellationToken);
@@ -40,7 +40,7 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
                     await transfer.CleanupArtifactAsync(artifact, cancellationToken);
                 }
 
-                var error = FileTransferEngine.ToSafeError(task.Type, entry.Source, exception);
+                var error = FileTransferEngine.ToErrorCode(exception);
                 await transfer.FailItemAsync(task.Id, entry, error, cancellationToken);
                 await transfer.SkipRemainingAsync(task.Id, plan, index, cancellationToken);
                 await progress.ReportAsync(force: true, cancellationToken);
@@ -52,7 +52,6 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
     }
 
     private void DeleteSourceAfterPublish(
-        FileRef source,
         ResolvedPath sourcePath,
         CancellationToken cancellationToken)
     {
@@ -63,9 +62,7 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            var error = $"{FileTransferEngine.Format(source)}: назначение создано, но источник не удалён. " +
-                        "Источник мог сохраниться полностью или частично.";
-            throw new FileTaskExecutionException(error, exception);
+            throw new FileTaskExecutionException(FileTaskErrorCodes.MoveSourceNotDeleted, exception);
         }
     }
 }

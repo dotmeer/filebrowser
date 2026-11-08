@@ -60,7 +60,7 @@
 
     @if (Task.Error is not null)
     {
-        <p class="task-error" role="alert">@Task.Error</p>
+        <p class="task-error" role="alert">@Presentation.ErrorText(Task.Error, Task.Type)</p>
     }
 
     @if (Task.Items.Count > 0)
@@ -81,7 +81,7 @@
                         }
                         @if (item.Error is not null)
                         {
-                            <span class="task-error">@item.Error</span>
+                            <span class="task-error">@Presentation.ErrorText(item.Error, Task.Type)</span>
                         }
                     </li>
                 }

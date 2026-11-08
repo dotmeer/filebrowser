@@ -15,15 +15,14 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             destination = pathResolver.ResolveExisting(task.Destination);
             if (!destination.IsDirectory)
             {
-                errors.Add(new FileTransferPlanError(null, "Назначение не является каталогом."));
+                errors.Add(new FileTransferPlanError(null, FileTaskErrorCodes.DestinationNotDirectory));
             }
         }
         catch (FileSystemResolutionException)
         {
-            errors.Add(new FileTransferPlanError(null, "Не удалось открыть каталог назначения."));
+            errors.Add(new FileTransferPlanError(null, FileTaskErrorCodes.DestinationUnavailable));
         }
 
-        var verb = task.Type == FileTaskType.Move ? "перемещать" : "копировать";
         var candidates = new List<FileTransferPlanEntry>();
         foreach (var source in task.Sources)
         {
@@ -32,7 +31,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
                 var resolved = pathResolver.ResolveExisting(source);
                 if (string.IsNullOrEmpty(resolved.RelativePath))
                 {
-                    errors.Add(new FileTransferPlanError(source, $"{Format(source)}: корень нельзя {verb}."));
+                    errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.RootAsSource));
                     continue;
                 }
 
@@ -42,19 +41,19 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             }
             catch (UnsupportedFileSystemObjectException)
             {
-                errors.Add(new FileTransferPlanError(source, $"{Format(source)}: обнаружен неподдерживаемый объект или символическая ссылка."));
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.UnsupportedOrSymlink));
             }
             catch (FileSystemResolutionException)
             {
-                errors.Add(new FileTransferPlanError(source, $"{Format(source)}: источник недоступен."));
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.SourceUnavailable));
             }
             catch (IOException)
             {
-                errors.Add(new FileTransferPlanError(source, $"{Format(source)}: не удалось прочитать источник."));
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.SourceUnreadable));
             }
             catch (UnauthorizedAccessException)
             {
-                errors.Add(new FileTransferPlanError(source, $"{Format(source)}: нет доступа к источнику."));
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.SourceAccessDenied));
             }
         }
 
@@ -66,24 +65,24 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
                 var parent = GetParent(candidate.SourcePath);
                 if (!SamePath(firstParent, parent))
                 {
-                    errors.Add(new FileTransferPlanError(candidate.Source, $"{Format(candidate.Source)}: источники должны находиться в одной родительской папке."));
+                    errors.Add(new FileTransferPlanError(candidate.Source, FileTaskErrorCodes.SourcesNotSameParent));
                 }
 
                 if (SamePath(parent, destination))
                 {
-                    errors.Add(new FileTransferPlanError(candidate.Source, $"{Format(candidate.Source)}: назначение совпадает с родительской папкой источников."));
+                    errors.Add(new FileTransferPlanError(candidate.Source, FileTaskErrorCodes.DestinationEqualsSourceParent));
                 }
 
                 if (SamePath(candidate.SourcePath, destination)
                     || (candidate.SourcePath.IsDirectory && PathInspection.IsWithin(candidate.SourcePath.PhysicalPath, destination.PhysicalPath)))
                 {
-                    errors.Add(new FileTransferPlanError(candidate.Source, $"{Format(candidate.Source)}: каталог назначения находится внутри источника или совпадает с ним."));
+                    errors.Add(new FileTransferPlanError(candidate.Source, FileTaskErrorCodes.DestinationInsideSource));
                 }
 
                 var finalPath = Path.Combine(destination.PhysicalPath, candidate.Name);
                 if (PathInspection.Exists(finalPath))
                 {
-                    errors.Add(new FileTransferPlanError(candidate.Source, $"{Format(candidate.Source)}: name_conflict."));
+                    errors.Add(new FileTransferPlanError(candidate.Source, FileTaskErrorCodes.NameConflict));
                 }
 
                 candidate.FinalPhysicalPath = finalPath;
@@ -108,16 +107,16 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         {
             if (error.Source is not null)
             {
-                await repository.UpdateTaskItemAsync(task.Id, error.Source, "failed", error.Message, 0, null, cancellationToken);
+                await repository.UpdateTaskItemAsync(task.Id, error.Source, "failed", error.Code, 0, null, cancellationToken);
             }
         }
 
         foreach (var source in task.Sources.Where(source => !sourcesWithSpecificError.Contains(source)))
         {
-            await repository.UpdateTaskItemAsync(task.Id, source, "failed", "Предварительная проверка не пройдена.", 0, null, cancellationToken);
+            await repository.UpdateTaskItemAsync(task.Id, source, "failed", FileTaskErrorCodes.PreflightFailed, 0, null, cancellationToken);
         }
 
-        throw new FileTaskExecutionException($"Предварительная проверка не пройдена: {string.Join("; ", plan.Errors.Select(error => error.Message))}");
+        throw new FileTaskExecutionException(FileTaskErrorCodes.PreflightFailed);
     }
 
     internal async Task<TransferProgress> StartRunningAsync(FileTask task, FileTransferPlan plan, CancellationToken cancellationToken)
@@ -152,7 +151,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             }
         }
 
-        throw new FileTaskExecutionException($"{sourceName}: не удалось создать временный объект.");
+        throw new FileTaskExecutionException(FileTaskErrorCodes.TemporaryArtifactFailed);
     }
 
     internal virtual async Task CopyEntryAsync(
@@ -185,7 +184,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         }
         catch (IOException exception) when (PathInspection.Exists(entry.FinalPhysicalPath))
         {
-            throw new FileTaskExecutionException("name_conflict.", exception);
+            throw new FileTaskExecutionException(FileTaskErrorCodes.NameConflict, exception);
         }
     }
 
@@ -245,7 +244,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         for (var remaining = currentIndex + 1; remaining < plan.Entries.Count; remaining++)
         {
             var pending = plan.Entries[remaining];
-            await repository.UpdateTaskItemAsync(taskId, pending.Source, "not_processed", "Не обработан после ошибки предыдущего объекта.", 0, pending.ItemCount, cancellationToken);
+            await repository.UpdateTaskItemAsync(taskId, pending.Source, "not_processed", FileTaskErrorCodes.SkippedAfterError, 0, pending.ItemCount, cancellationToken);
         }
     }
 
@@ -264,25 +263,25 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         }
         catch (IOException exception) when (PathInspection.Exists(finalPath))
         {
-            throw new FileTaskExecutionException("name_conflict.", exception);
+            throw new FileTaskExecutionException(FileTaskErrorCodes.NameConflict, exception);
         }
     }
 
-    internal static string Format(FileRef file) => $"{file.Root}/{file.Path}";
-
-    internal static string ToSafeError(FileTaskType taskType, FileRef source, Exception exception)
-    {
-        var operation = taskType == FileTaskType.Move ? "перемещения" : "копирования";
-        return exception switch
+    /// <summary>
+    /// Maps an execution exception to a stable error code persisted in
+    /// task_items.error and tasks.error. Never produces user-facing text:
+    /// presentation localizes known codes and passes legacy text through.
+    /// </summary>
+    internal static string ToErrorCode(Exception exception) =>
+        exception switch
         {
-            FileTaskExecutionException taskException => taskException.SafeMessage,
-            FileSystemNameConflictException => $"{Format(source)}: name_conflict.",
-            FileSystemResolutionException => $"{Format(source)}: файловая операция не выполнена.",
-            UnauthorizedAccessException => $"{Format(source)}: нет доступа.",
-            IOException => $"{Format(source)}: ошибка {operation}.",
-            _ => $"{Format(source)}: ошибка {operation}."
+            FileTaskExecutionException taskException => taskException.SafeCode,
+            FileSystemNameConflictException => FileTaskErrorCodes.NameConflict,
+            FileSystemResolutionException => FileTaskErrorCodes.OperationFailed,
+            UnauthorizedAccessException => FileTaskErrorCodes.OperationAccessDenied,
+            IOException => FileTaskErrorCodes.IoError,
+            _ => FileTaskErrorCodes.IoError,
         };
-    }
 
     private static async Task CopyDirectoryAsync(string sourcePath, string destinationPath, TransferProgress progress, CancellationToken cancellationToken)
     {
@@ -403,7 +402,7 @@ internal sealed class FileTransferPlanEntry(
     public long ItemCount { get; } = itemCount;
 }
 
-internal sealed record FileTransferPlanError(FileRef? Source, string Message);
+internal sealed record FileTransferPlanError(FileRef? Source, string Code);
 
 internal sealed record TransferArtifact(TemporaryArtifact Record, string PhysicalPath);
 

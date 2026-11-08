@@ -95,6 +95,40 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         _ => status
     };
 
+    /// <summary>
+    /// Translates a persisted task error (stable code from
+    /// <see cref="FileTaskErrorCodes"/>) for display. Legacy rows written
+    /// before codes were introduced contain free text and pass through
+    /// unchanged.
+    /// </summary>
+    public string ErrorText(string? error, FileTaskType taskType) => error switch
+    {
+        null => string.Empty,
+        FileTaskErrorCodes.DestinationNotDirectory => localizer["Назначение не является каталогом."],
+        FileTaskErrorCodes.DestinationUnavailable => localizer["Не удалось открыть каталог назначения."],
+        FileTaskErrorCodes.RootAsSource => localizer["Корень нельзя использовать как источник."],
+        FileTaskErrorCodes.UnsupportedOrSymlink => localizer["Обнаружен неподдерживаемый объект или символическая ссылка."],
+        FileTaskErrorCodes.SourceUnavailable => localizer["Источник недоступен."],
+        FileTaskErrorCodes.SourceUnreadable => localizer["Не удалось прочитать источник."],
+        FileTaskErrorCodes.SourceAccessDenied => localizer["Нет доступа к источнику."],
+        FileTaskErrorCodes.SourcesNotSameParent => localizer["Источники должны находиться в одной родительской папке."],
+        FileTaskErrorCodes.DestinationEqualsSourceParent => localizer["Назначение совпадает с родительской папкой источников."],
+        FileTaskErrorCodes.DestinationInsideSource => localizer["Каталог назначения находится внутри источника или совпадает с ним."],
+        FileTaskErrorCodes.NameConflict => localizer["Конфликт имён: объект с таким именем уже существует."],
+        FileTaskErrorCodes.PreflightFailed => localizer["Предварительная проверка не пройдена."],
+        FileTaskErrorCodes.TemporaryArtifactFailed => localizer["Не удалось создать временный объект."],
+        FileTaskErrorCodes.SkippedAfterError => localizer["Не обработан после ошибки предыдущего объекта."],
+        FileTaskErrorCodes.OperationFailed => localizer["Файловая операция не выполнена."],
+        FileTaskErrorCodes.OperationAccessDenied => localizer["Нет доступа."],
+        FileTaskErrorCodes.IoError => taskType == FileTaskType.Move
+            ? localizer["Ошибка перемещения."]
+            : localizer["Ошибка копирования."],
+        FileTaskErrorCodes.MoveSourceNotDeleted => localizer["Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично."],
+        FileTaskErrorCodes.ExecutorFailed => localizer["Исполнитель задачи завершился ошибкой."],
+        FileTaskErrorCodes.TaskInterruptedRestart => localizer["Задача прервана перезапуском приложения."],
+        _ => error
+    };
+
     public static string ItemStatusCssClass(string status) => status switch
     {
         "completed" => "task-item-completed",

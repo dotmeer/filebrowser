@@ -229,8 +229,8 @@ public sealed class TaskExecutorHostedService(
             if (task is not null && FileTaskStateTransitions.IsAllowed(task.Status, FileTaskStatus.Failed))
             {
                 var error = exception is FileTaskExecutionException taskException
-                    ? taskException.SafeMessage
-                    : "Исполнитель задачи завершился ошибкой.";
+                    ? taskException.SafeCode
+                    : FileTaskErrorCodes.ExecutorFailed;
                 await repository.TransitionAsync(taskId, FileTaskStatus.Failed, "failed", error, cancellationToken);
             }
         }
@@ -253,8 +253,11 @@ public sealed class TaskExecutorHostedService(
     }
 }
 
-public sealed class FileTaskExecutionException(string safeMessage, Exception? innerException = null)
-    : Exception(safeMessage, innerException)
+public sealed class FileTaskExecutionException(string safeCode, Exception? innerException = null)
+    : Exception(safeCode, innerException)
 {
-    public string SafeMessage { get; } = safeMessage;
+    /// <summary>
+    /// Stable error code persisted in SQLite and translated at presentation time.
+    /// </summary>
+    public string SafeCode { get; } = safeCode;
 }

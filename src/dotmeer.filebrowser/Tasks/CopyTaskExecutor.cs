@@ -39,7 +39,7 @@ public sealed class CopyTaskExecutor(FileTransferEngine transfer)
                     await transfer.CleanupArtifactAsync(artifact, cancellationToken);
                 }
 
-                var error = FileTransferEngine.ToSafeError(task.Type, entry.Source, exception);
+                var error = FileTransferEngine.ToErrorCode(exception);
                 await transfer.FailItemAsync(task.Id, entry, error, cancellationToken);
                 await transfer.SkipRemainingAsync(task.Id, plan, index, cancellationToken);
                 await progress.ReportAsync(force: true, cancellationToken);

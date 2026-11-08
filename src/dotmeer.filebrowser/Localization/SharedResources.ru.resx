@@ -165,4 +165,25 @@
   <data name="не выбрана" xml:space="preserve"><value>не выбрана</value></data>
   <data name="Переместить сюда" xml:space="preserve"><value>Переместить сюда</value></data>
   <data name="Копировать сюда" xml:space="preserve"><value>Копировать сюда</value></data>
+  <data name="Назначение не является каталогом." xml:space="preserve"><value>Назначение не является каталогом.</value></data>
+  <data name="Не удалось открыть каталог назначения." xml:space="preserve"><value>Не удалось открыть каталог назначения.</value></data>
+  <data name="Корень нельзя использовать как источник." xml:space="preserve"><value>Корень нельзя использовать как источник.</value></data>
+  <data name="Обнаружен неподдерживаемый объект или символическая ссылка." xml:space="preserve"><value>Обнаружен неподдерживаемый объект или символическая ссылка.</value></data>
+  <data name="Источник недоступен." xml:space="preserve"><value>Источник недоступен.</value></data>
+  <data name="Не удалось прочитать источник." xml:space="preserve"><value>Не удалось прочитать источник.</value></data>
+  <data name="Нет доступа к источнику." xml:space="preserve"><value>Нет доступа к источнику.</value></data>
+  <data name="Источники должны находиться в одной родительской папке." xml:space="preserve"><value>Источники должны находиться в одной родительской папке.</value></data>
+  <data name="Назначение совпадает с родительской папкой источников." xml:space="preserve"><value>Назначение совпадает с родительской папкой источников.</value></data>
+  <data name="Каталог назначения находится внутри источника или совпадает с ним." xml:space="preserve"><value>Каталог назначения находится внутри источника или совпадает с ним.</value></data>
+  <data name="Конфликт имён: объект с таким именем уже существует." xml:space="preserve"><value>Конфликт имён: объект с таким именем уже существует.</value></data>
+  <data name="Предварительная проверка не пройдена." xml:space="preserve"><value>Предварительная проверка не пройдена.</value></data>
+  <data name="Не удалось создать временный объект." xml:space="preserve"><value>Не удалось создать временный объект.</value></data>
+  <data name="Не обработан после ошибки предыдущего объекта." xml:space="preserve"><value>Не обработан после ошибки предыдущего объекта.</value></data>
+  <data name="Файловая операция не выполнена." xml:space="preserve"><value>Файловая операция не выполнена.</value></data>
+  <data name="Нет доступа." xml:space="preserve"><value>Нет доступа.</value></data>
+  <data name="Ошибка копирования." xml:space="preserve"><value>Ошибка копирования.</value></data>
+  <data name="Ошибка перемещения." xml:space="preserve"><value>Ошибка перемещения.</value></data>
+  <data name="Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично." xml:space="preserve"><value>Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично.</value></data>
+  <data name="Исполнитель задачи завершился ошибкой." xml:space="preserve"><value>Исполнитель задачи завершился ошибкой.</value></data>
+  <data name="Задача прервана перезапуском приложения." xml:space="preserve"><value>Задача прервана перезапуском приложения.</value></data>
 </root>

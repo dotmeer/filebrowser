@@ -185,6 +185,28 @@ public sealed class TaskManagementTests
         return new TaskPresentation(new StringLocalizer<SharedResources>(factory));
     }
 
+    [Fact]
+    public void Presentation_TranslatesTaskErrorCodesAndPassesLegacyTextThrough()
+    {
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en");
+        try
+        {
+            var presentation = CreatePresentation();
+
+            Assert.Equal("Preflight check failed.", presentation.ErrorText(FileTaskErrorCodes.PreflightFailed, FileTaskType.Copy));
+            Assert.Equal("Copy failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Copy));
+            Assert.Equal("Move failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Move));
+            Assert.Equal("Name conflict: an object with the same name already exists.", presentation.ErrorText(FileTaskErrorCodes.NameConflict, FileTaskType.Move));
+            Assert.Equal(string.Empty, presentation.ErrorText(null, FileTaskType.Copy));
+            Assert.Equal("Произвольный старый текст.", presentation.ErrorText("Произвольный старый текст.", FileTaskType.Copy));
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
     private static FileTask CreateTask(FileTaskStatus status, long bytesDone, long? bytesTotal) => new(
         Guid.NewGuid(),
         FileTaskType.Copy,

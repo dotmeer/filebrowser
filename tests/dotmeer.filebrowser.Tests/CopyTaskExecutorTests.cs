@@ -126,9 +126,11 @@ public sealed class CopyTaskExecutorTests
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
         var scanned = await repository.GetAsync(task.Id);
 
-        Assert.Contains("name_conflict", exception.SafeMessage);
-        Assert.Contains("одной родительской", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         Assert.NotNull(scanned);
+        Assert.Equal(
+            [FileTaskErrorCodes.NameConflict, FileTaskErrorCodes.SourcesNotSameParent],
+            scanned.Items.OrderBy(item => item.Source.Path, StringComparer.Ordinal).Select(item => item.Error!).ToArray());
         Assert.Equal(FileTaskStatus.Scanning, scanned.Status);
         Assert.All(scanned.Items, item => Assert.Equal("failed", item.Status));
         Assert.Equal("existing", File.ReadAllText(Path.Combine(destinationDirectory, "first.txt")));
@@ -159,7 +161,9 @@ public sealed class CopyTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("символическая ссылка", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.UnsupportedOrSymlink, Assert.Single(scanned!.Items).Error);
         Assert.False(Directory.Exists(Path.Combine(destinationRoot, "inbox", "source-directory")));
     }
 
@@ -176,7 +180,9 @@ public sealed class CopyTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("внутри источника", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.DestinationInsideSource, Assert.Single(scanned!.Items).Error);
         Assert.False(Directory.Exists(Path.Combine(sourceDirectory, "nested", "source-directory")));
     }
 
@@ -195,7 +201,7 @@ public sealed class CopyTaskExecutorTests
         using var lockStream = new FileStream(source, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("ошибка копирования", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
         Assert.False(File.Exists(Path.Combine(destinationDirectory, "locked.txt")));
         Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
         Assert.Empty(await repository.GetTemporaryArtifactsAsync());
@@ -280,7 +286,9 @@ public sealed class CopyTaskExecutorTests
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
 
-        Assert.Contains("источник недоступен", exception.SafeMessage);
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.SourceUnavailable, Assert.Single(scanned!.Items).Error);
         Assert.True(File.Exists(temporarySource));
         Assert.False(File.Exists(Path.Combine(destinationRoot, "inbox", ".filebrowser-source")));
         Assert.Empty(await repository.GetTemporaryArtifactsAsync());
@@ -552,7 +560,7 @@ public sealed class CopyTaskExecutorTests
         }
         catch (FileTaskExecutionException exception)
         {
-            return new CopyOutcome(false, exception.SafeMessage);
+            return new CopyOutcome(false, exception.SafeCode);
         }
     }
 
