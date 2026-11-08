@@ -67,6 +67,59 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
+    public async Task CreateDirectory_ConcurrentAttemptsCreateExactlyOneDirectory()
+    {
+        using var workspace = new TestWorkspace();
+        var writer = CreateWriter(workspace);
+        var results = await RunConcurrentAttemptsAsync(8, attempt =>
+        {
+            try
+            {
+                writer.CreateDirectory(new FileRef("files", string.Empty), "created");
+                return true;
+            }
+            catch (FileSystemNameConflictException)
+            {
+                return false;
+            }
+        });
+
+        Assert.Equal(1, results.Count(success => success));
+        Assert.True(Directory.Exists(Path.Combine(workspace.RootPath, "created")));
+    }
+
+    [Fact]
+    public async Task Rename_ConcurrentAttemptsPublishExactlyOneDestination()
+    {
+        using var workspace = new TestWorkspace();
+        var firstSourcePath = Path.Combine(workspace.RootPath, "first.txt");
+        var secondSourcePath = Path.Combine(workspace.RootPath, "second.txt");
+        var destinationPath = Path.Combine(workspace.RootPath, "destination.txt");
+        File.WriteAllText(firstSourcePath, "first");
+        File.WriteAllText(secondSourcePath, "second");
+        var writer = CreateWriter(workspace);
+        var results = await RunConcurrentAttemptsAsync(2, attempt =>
+        {
+            var sourceName = attempt % 2 == 0 ? "first.txt" : "second.txt";
+            try
+            {
+                writer.Rename(new FileRef("files", sourceName), "destination.txt");
+                return true;
+            }
+            catch (FileSystemNameConflictException)
+            {
+                return false;
+            }
+        });
+
+        Assert.Equal(1, results.Count(success => success));
+        Assert.True(File.Exists(destinationPath));
+        var destinationContent = File.ReadAllText(destinationPath);
+        Assert.True(destinationContent is "first" or "second", $"Unexpected destination content: {destinationContent}");
+        Assert.Equal(1, new[] { firstSourcePath, secondSourcePath }.Count(File.Exists));
+    }
+
+    [Fact]
     public void Delete_RemovesExactlyTheRequestedObject()
     {
         using var workspace = new TestWorkspace();
@@ -197,6 +250,24 @@ public sealed class FileSystemWriteTests
         Assert.True(response.StatusCode == HttpStatusCode.BadRequest,
             $"Status: {response.StatusCode}; body: {await response.Content.ReadAsStringAsync()}");
         Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "must-not-exist")));
+    }
+
+    private static async Task<bool[]> RunConcurrentAttemptsAsync(int attempts, Func<int, bool> attempt)
+    {
+        using var ready = new CountdownEvent(attempts);
+        using var start = new ManualResetEventSlim();
+        var tasks = Enumerable.Range(0, attempts)
+            .Select(index => Task.Run(() =>
+            {
+                ready.Signal();
+                start.Wait();
+                return attempt(index);
+            }))
+            .ToArray();
+
+        ready.Wait();
+        start.Set();
+        return await Task.WhenAll(tasks);
     }
 
     private static FileSystemWriteService CreateWriter(TestWorkspace workspace)

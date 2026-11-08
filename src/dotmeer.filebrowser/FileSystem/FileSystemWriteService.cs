@@ -1,10 +1,10 @@
-using System.Collections.Concurrent;
-
 namespace dotmeer.filebrowser.FileSystem;
 
 public sealed class FileSystemWriteService(PathResolver pathResolver)
 {
-    private static readonly ConcurrentDictionary<string, object> DestinationLocks = new(PathComparer);
+    private const int DestinationLockPoolSize = 256;
+
+    private static readonly object[] DestinationLocks = CreateDestinationLockPool();
 
     public FileRef CreateDirectory(FileRef parent, string name)
     {
@@ -129,7 +129,18 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
     }
 
     private static object GetDestinationLock(string physicalPath) =>
-        DestinationLocks.GetOrAdd(physicalPath, static _ => new object());
+        DestinationLocks[(uint)physicalPath.GetHashCode() % DestinationLocks.Length];
+
+    private static object[] CreateDestinationLockPool()
+    {
+        var locks = new object[DestinationLockPoolSize];
+        for (var index = 0; index < locks.Length; index++)
+        {
+            locks[index] = new object();
+        }
+
+        return locks;
+    }
 
     private static void EnsureDestinationDoesNotExist(string physicalPath)
     {
@@ -150,9 +161,6 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
             }
         }
     }
-
-    private static StringComparer PathComparer =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }
 
 public sealed class FileSystemNameConflictException : FileSystemResolutionException
