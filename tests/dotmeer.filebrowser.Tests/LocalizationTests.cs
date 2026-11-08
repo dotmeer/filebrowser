@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Settings;
 using dotmeer.filebrowser.Tasks;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -169,42 +168,6 @@ public sealed class LocalizationTests
         return JsonDocument.Parse(body);
     }
 
-    private static TestHost CreateHost(TestWorkspace workspace)
-    {
-        var configPath = workspace.WriteConfiguration(workspace.RootPath);
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(workspace.ConfigDirectory, "app.db"));
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var factory = new WebApplicationFactory<Program>();
-        try
-        {
-            var client = factory.CreateClient();
-            return new TestHost(factory, client);
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
-    }
+    private static TestHostFactory.TestHost CreateHost(TestWorkspace workspace) =>
+        TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 }

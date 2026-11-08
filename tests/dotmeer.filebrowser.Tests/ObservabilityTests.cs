@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
 using dotmeer.filebrowser.Tasks;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -123,37 +122,14 @@ public sealed class ObservabilityTests
         throw new TimeoutException($"Задача {taskId} не перешла в состояние {expectedStatus}.");
     }
 
-    private static TestHost CreateHost(string configPath, IFileTaskExecutor executor)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(Path.GetDirectoryName(configPath)!, "app.db"));
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services =>
+    private static TestHostFactory.TestHost CreateHost(string configPath, IFileTaskExecutor executor) =>
+        TestHostFactory.Create(
+            configPath,
+            configureServices: services =>
             {
                 services.RemoveAll<IFileTaskExecutor>();
                 services.AddSingleton<IFileTaskExecutor>(executor);
-            }));
-        try
-        {
-            var client = factory.CreateClient();
-            return new TestHost(factory, client);
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
+            });
 
     private static string? GetTag(Activity activity, string name) =>
         GetTagItem(activity, name) as string;
@@ -189,19 +165,6 @@ public sealed class ObservabilityTests
         string Instrument,
         double Value,
         KeyValuePair<string, object?>[] Tags);
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public IServiceProvider Services => factory.Services;
-
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
-    }
 }
 
 internal static class ObservabilityTestTagExtensions

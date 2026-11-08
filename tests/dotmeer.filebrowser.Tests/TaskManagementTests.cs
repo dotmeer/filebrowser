@@ -5,8 +5,6 @@ using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Localization;
@@ -291,40 +289,14 @@ public sealed class TaskManagementTests
         return WebUtility.HtmlDecode(match.Groups["token"].Value);
     }
 
-    private static TestHost CreateHost(string configPath, IFileTaskExecutor executor)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(Path.GetDirectoryName(configPath)!, "app.db"));
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services =>
+    private static TestHostFactory.TestHost CreateHost(string configPath, IFileTaskExecutor executor) =>
+        TestHostFactory.Create(
+            configPath,
+            configureServices: services =>
             {
-                services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
                 services.RemoveAll<IFileTaskExecutor>();
                 services.AddSingleton(executor);
-            }));
-        try
-        {
-            var client = factory.CreateClient();
-            return new TestHost(factory, client);
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
+            });
 
     private sealed class NeverCompletingExecutor : IFileTaskExecutor
     {
@@ -360,17 +332,5 @@ public sealed class TaskManagementTests
 
         public void Release() => _release.TrySetResult(true);
     }
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public IServiceProvider Services => factory.Services;
-
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
-    }
 }
+

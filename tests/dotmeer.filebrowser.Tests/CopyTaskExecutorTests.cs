@@ -5,13 +5,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace dotmeer.filebrowser.Tests;
 
+[Collection("Web application factory")]
 public sealed class CopyTaskExecutorTests
 {
     [Fact]
@@ -345,7 +344,7 @@ public sealed class CopyTaskExecutorTests
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "other"));
         File.WriteAllText(Path.Combine(workspace.RootPath, "other", "second.txt"), "second");
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = CreateCopyHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/copy")
@@ -455,7 +454,7 @@ public sealed class CopyTaskExecutorTests
         using var workspace = new TestWorkspace();
         File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "copied by worker");
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = CreateCopyHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/copy")
@@ -572,35 +571,6 @@ public sealed class CopyTaskExecutorTests
         return WebUtility.HtmlDecode(match.Groups["token"].Value);
     }
 
-    private static CopyHost CreateCopyHost(string configPath)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(Path.GetDirectoryName(configPath)!, "app.db"));
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
-        try
-        {
-            return new CopyHost(factory, factory.CreateClient());
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
     private sealed class CancellingCopyEngine(
         PathResolver resolver,
         TaskRepository repository,
@@ -616,19 +586,6 @@ public sealed class CopyTaskExecutorTests
             cancellation.Cancel();
             cancellationToken.ThrowIfCancellationRequested();
             return base.CopyEntryAsync(entry, destinationPath, progress, cancellationToken);
-        }
-    }
-
-    private sealed class CopyHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public IServiceProvider Services => factory.Services;
-
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
         }
     }
 

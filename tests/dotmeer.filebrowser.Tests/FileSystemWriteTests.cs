@@ -4,9 +4,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -221,7 +218,7 @@ public sealed class FileSystemWriteTests
     public async Task Mkdir_WithAntiforgeryToken_ReturnsCreatedPublicReference()
     {
         using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
@@ -242,7 +239,7 @@ public sealed class FileSystemWriteTests
     {
         using var workspace = new TestWorkspace();
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "existing"));
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
@@ -260,7 +257,7 @@ public sealed class FileSystemWriteTests
     public async Task Mkdir_WithoutAntiforgeryDoesNotChangeFileSystem()
     {
         using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.PostAsJsonAsync("/api/fs/mkdir", new
         {
@@ -313,43 +310,5 @@ public sealed class FileSystemWriteTests
         };
         request.Headers.Add("X-CSRF-TOKEN", token);
         return await client.SendAsync(request);
-    }
-
-    private static TestHost CreateHost(string configPath)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.AddDataProtection()
-                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
-        try
-        {
-            return new TestHost(factory, factory.CreateClient());
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
     }
 }

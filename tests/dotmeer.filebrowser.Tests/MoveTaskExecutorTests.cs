@@ -5,12 +5,11 @@ using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
+[Collection("Web application factory")]
 public sealed class MoveTaskExecutorTests
 {
     [Fact]
@@ -243,7 +242,7 @@ public sealed class MoveTaskExecutorTests
         using var workspace = new TestWorkspace();
         File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "moved by worker");
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
@@ -276,7 +275,7 @@ public sealed class MoveTaskExecutorTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "other", "second.txt"), "second");
         var target = Path.Combine(workspace.RootPath, "target");
         Directory.CreateDirectory(target);
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
         var token = await GetAntiforgeryTokenAsync(host.Client);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
@@ -309,7 +308,7 @@ public sealed class MoveTaskExecutorTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "keep");
         var target = Path.Combine(workspace.RootPath, "target");
         Directory.CreateDirectory(target);
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
 
         using var response = await host.Client.PostAsJsonAsync("/api/tasks/move", new
         {
@@ -434,48 +433,6 @@ public sealed class MoveTaskExecutorTests
         var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
         Assert.True(match.Success, "На странице не найден antiforgery token.");
         return WebUtility.HtmlDecode(match.Groups["token"].Value);
-    }
-
-    private static MoveHost CreateHost(string configPath)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalDatabasePath = Environment.GetEnvironmentVariable("DatabasePath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("DatabasePath", Path.Combine(Path.GetDirectoryName(configPath)!, "app.db"));
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
-        try
-        {
-            return new MoveHost(factory, factory.CreateClient());
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
-    private sealed class MoveHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public IServiceProvider Services => factory.Services;
-
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
     }
 
     private class CrossDeviceEngine(PathResolver resolver, TaskRepository repository, TaskProgressService progress)

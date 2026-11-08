@@ -1,10 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -219,47 +215,8 @@ public sealed class FileSystemReadTests
         Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static TestHost CreateHost(string configPath, string environment = "Development")
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-        {
-            builder.UseEnvironment(environment);
-            builder.ConfigureServices(services => services.AddDataProtection()
-                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory)));
-        });
-        try
-        {
-            var client = factory.CreateClient();
-            return new TestHost(factory, client);
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
-    }
+    private static TestHostFactory.TestHost CreateHost(string configPath, string environment = "Development") =>
+        TestHostFactory.Create(configPath, environment: environment);
 
     private sealed record ListingResponse(string Root, string Path, IReadOnlyList<EntryResponse> Entries);
 

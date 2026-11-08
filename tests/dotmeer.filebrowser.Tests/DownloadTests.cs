@@ -5,11 +5,8 @@ using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.Endpoints;
 using dotmeer.filebrowser.FileSystem;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace dotmeer.filebrowser.Tests;
@@ -23,7 +20,7 @@ public sealed class DownloadTests
         using var workspace = new TestWorkspace();
         var content = Encoding.UTF8.GetBytes("file content for download");
         File.WriteAllBytes(Path.Combine(workspace.RootPath, "report.txt"), content);
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=report.txt");
         var body = await response.Content.ReadAsByteArrayAsync();
@@ -43,7 +40,7 @@ public sealed class DownloadTests
     {
         using var workspace = new TestWorkspace();
         File.WriteAllText(Path.Combine(workspace.RootPath, "файл.txt"), "content");
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=" + Uri.EscapeDataString("файл.txt"));
 
@@ -59,7 +56,7 @@ public sealed class DownloadTests
         using var workspace = new TestWorkspace();
         var content = Encoding.UTF8.GetBytes("0123456789");
         File.WriteAllBytes(Path.Combine(workspace.RootPath, "ranged.bin"), content);
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/fs/download?root=files&path=ranged.bin");
         request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(2, 5);
@@ -81,7 +78,7 @@ public sealed class DownloadTests
         using var workspace = new TestWorkspace();
         var content = Encoding.UTF8.GetBytes("0123456789");
         File.WriteAllBytes(Path.Combine(workspace.RootPath, "ranged.bin"), content);
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/fs/download?root=files&path=ranged.bin");
         request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(7, null);
@@ -99,7 +96,7 @@ public sealed class DownloadTests
     {
         using var workspace = new TestWorkspace();
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "folder"));
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=folder");
         var code = await ReadProblemCodeAsync(response);
@@ -112,7 +109,7 @@ public sealed class DownloadTests
     public async Task Download_RejectsRootPath()
     {
         using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files");
         var code = await ReadProblemCodeAsync(response);
@@ -129,7 +126,7 @@ public sealed class DownloadTests
     public async Task Download_RejectsInvalidPublicPaths(string path)
     {
         using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync(
             "/api/fs/download?root=files&path=" + Uri.EscapeDataString(path));
@@ -143,7 +140,7 @@ public sealed class DownloadTests
     public async Task Download_RejectsMissingFileWithNotFound()
     {
         using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=missing.txt");
         var code = await ReadProblemCodeAsync(response);
@@ -157,7 +154,7 @@ public sealed class DownloadTests
     {
         using var workspace = new TestWorkspace();
         File.WriteAllText(Path.Combine(workspace.RootPath, "file.txt"), "content");
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=unknown&path=file.txt");
         var code = await ReadProblemCodeAsync(response);
@@ -182,7 +179,7 @@ public sealed class DownloadTests
             return;
         }
 
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=link.txt");
         var code = await ReadProblemCodeAsync(response);
@@ -257,43 +254,5 @@ public sealed class DownloadTests
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.GetProperty("code").GetString();
-    }
-
-    private static TestHost CreateHost(string configPath)
-    {
-        var originalConfigPath = Environment.GetEnvironmentVariable("ConfigPath");
-        var originalEventLogLevel = Environment.GetEnvironmentVariable("Logging__EventLog__LogLevel__Default");
-        Environment.SetEnvironmentVariable("ConfigPath", configPath);
-        Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", "None");
-        var keyDirectory = Path.Combine(Path.GetDirectoryName(configPath)!, "data-protection-keys");
-        Directory.CreateDirectory(keyDirectory);
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.AddDataProtection()
-                .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))));
-        try
-        {
-            return new TestHost(factory, factory.CreateClient());
-        }
-        catch
-        {
-            factory.Dispose();
-            throw;
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
-            Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
-        }
-    }
-
-    private sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
-    {
-        public HttpClient Client { get; } = client;
-
-        public void Dispose()
-        {
-            Client.Dispose();
-            factory.Dispose();
-        }
     }
 }
