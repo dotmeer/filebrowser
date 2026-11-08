@@ -152,13 +152,8 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
 
     private static void EnsureDirectoryTreeSupported(string directoryPath)
     {
-        foreach (var childPath in Directory.EnumerateFileSystemEntries(directoryPath))
+        foreach (var _ in FileSystemTreeWalker.EnumerateValidated(directoryPath))
         {
-            PathInspection.ThrowIfUnsupported(childPath);
-            if (Directory.Exists(childPath))
-            {
-                EnsureDirectoryTreeSupported(childPath);
-            }
         }
     }
 }

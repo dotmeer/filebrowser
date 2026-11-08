@@ -6,7 +6,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
 {
     private const int BufferSize = 128 * 1024;
 
-    internal FileTransferPlan BuildPlan(FileTask task)
+    internal FileTransferPlan BuildPlan(FileTask task, CancellationToken cancellationToken)
     {
         var errors = new List<FileTransferPlanError>();
         ResolvedPath? destination = null;
@@ -37,7 +37,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
                 }
 
                 var name = Path.GetFileName(resolved.PhysicalPath);
-                var scan = ScanObject(resolved.PhysicalPath);
+                var scan = ScanObject(resolved.PhysicalPath, cancellationToken);
                 candidates.Add(new FileTransferPlanEntry(source, resolved, name, string.Empty, scan.Bytes, scan.Items));
             }
             catch (UnsupportedFileSystemObjectException)
@@ -286,21 +286,25 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
 
     private static async Task CopyDirectoryAsync(string sourcePath, string destinationPath, TransferProgress progress, CancellationToken cancellationToken)
     {
-        PathInspection.ThrowIfUnsupported(sourcePath);
-        await progress.ItemCompletedAsync(cancellationToken);
-        foreach (var childPath in Directory.EnumerateFileSystemEntries(sourcePath))
+        foreach (var node in FileSystemTreeWalker.EnumerateValidated(sourcePath, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PathInspection.ThrowIfUnsupported(childPath);
-            var childDestination = Path.Combine(destinationPath, Path.GetFileName(childPath));
-            if (Directory.Exists(childPath))
+            var relativePath = Path.GetRelativePath(sourcePath, node.Path);
+            var nodeDestinationPath = relativePath == "."
+                ? destinationPath
+                : Path.Combine(destinationPath, relativePath);
+            if (node.IsDirectory)
             {
-                Directory.CreateDirectory(childDestination);
-                await CopyDirectoryAsync(childPath, childDestination, progress, cancellationToken);
+                if (relativePath != ".")
+                {
+                    Directory.CreateDirectory(nodeDestinationPath);
+                }
+
+                await progress.ItemCompletedAsync(cancellationToken);
             }
             else
             {
-                await CopyFileAsync(childPath, childDestination, progress, cancellationToken);
+                await CopyFileAsync(node.Path, nodeDestinationPath, progress, cancellationToken);
             }
         }
     }
@@ -326,34 +330,26 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         await progress.ItemCompletedAsync(cancellationToken);
     }
 
-    private static ScanResult ScanObject(string path)
+    private static ScanResult ScanObject(string path, CancellationToken cancellationToken)
     {
-        PathInspection.ThrowIfUnsupported(path);
-        if (!Directory.Exists(path))
+        long bytes = 0;
+        long items = 0;
+        foreach (var node in FileSystemTreeWalker.EnumerateValidated(path, cancellationToken))
         {
-            return new ScanResult(new FileInfo(path).Length, 1);
+            items++;
+            if (!node.IsDirectory)
+            {
+                bytes += new FileInfo(node.Path).Length;
+            }
         }
 
-        long bytes = 0;
-        long items = 1;
-        foreach (var childPath in Directory.EnumerateFileSystemEntries(path))
-        {
-            var child = ScanObject(childPath);
-            bytes += child.Bytes;
-            items += child.Items;
-        }
         return new ScanResult(bytes, items);
     }
 
     private static void EnsureDirectoryTreeSupported(string directoryPath)
     {
-        foreach (var childPath in Directory.EnumerateFileSystemEntries(directoryPath))
+        foreach (var _ in FileSystemTreeWalker.EnumerateValidated(directoryPath))
         {
-            PathInspection.ThrowIfUnsupported(childPath);
-            if (Directory.Exists(childPath))
-            {
-                EnsureDirectoryTreeSupported(childPath);
-            }
         }
     }
 

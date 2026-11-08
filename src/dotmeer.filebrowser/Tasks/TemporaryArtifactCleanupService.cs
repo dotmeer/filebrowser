@@ -20,7 +20,7 @@ public sealed class TemporaryArtifactCleanupService(TaskRepository repository, P
                 var resolved = pathResolver.ResolveExistingTemporaryArtifact(artifact.File);
                 if (resolved.IsDirectory)
                 {
-                    EnsureTreeHasNoUnsupportedObjects(resolved.PhysicalPath);
+                    EnsureTreeHasNoUnsupportedObjects(resolved.PhysicalPath, cancellationToken);
                     Directory.Delete(resolved.PhysicalPath, recursive: true);
                 }
                 else
@@ -40,15 +40,10 @@ public sealed class TemporaryArtifactCleanupService(TaskRepository repository, P
         }
     }
 
-    private static void EnsureTreeHasNoUnsupportedObjects(string directoryPath)
+    private static void EnsureTreeHasNoUnsupportedObjects(string directoryPath, CancellationToken cancellationToken)
     {
-        foreach (var childPath in Directory.EnumerateFileSystemEntries(directoryPath))
+        foreach (var _ in FileSystemTreeWalker.EnumerateValidated(directoryPath, cancellationToken))
         {
-            PathInspection.ThrowIfUnsupported(childPath);
-            if (Directory.Exists(childPath))
-            {
-                EnsureTreeHasNoUnsupportedObjects(childPath);
-            }
         }
     }
 }

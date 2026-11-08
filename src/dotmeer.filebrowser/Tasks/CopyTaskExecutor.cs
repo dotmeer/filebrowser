@@ -14,7 +14,7 @@ public sealed class CopyTaskExecutor(FileTransferEngine transfer)
 {
     public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken)
     {
-        var plan = transfer.BuildPlan(task);
+        var plan = transfer.BuildPlan(task, cancellationToken);
         await transfer.FailPreflightAsync(task, plan, cancellationToken);
         var progress = await transfer.StartRunningAsync(task, plan, cancellationToken);
         var destination = plan.Destination!;

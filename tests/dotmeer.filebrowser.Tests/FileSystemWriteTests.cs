@@ -137,6 +137,27 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
+    public void Delete_RemovesDeepDirectoryTree()
+    {
+        using var workspace = new TestWorkspace();
+        var removable = Path.Combine(workspace.RootPath, "removable");
+        var currentPath = removable;
+        var depth = OperatingSystem.IsWindows() ? 48 : 256;
+        for (var index = 0; index < depth; index++)
+        {
+            currentPath = Path.Combine(currentPath, "d");
+            Directory.CreateDirectory(currentPath);
+        }
+
+        File.WriteAllText(Path.Combine(currentPath, "leaf.txt"), "content");
+        var writer = CreateWriter(workspace);
+
+        writer.Delete(new FileRef("files", "removable"));
+
+        Assert.False(Directory.Exists(removable));
+    }
+
+    [Fact]
     public void RenameAndDelete_RejectRoot()
     {
         using var workspace = new TestWorkspace();

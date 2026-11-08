@@ -47,6 +47,66 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
+    public async Task Execute_CopiesDeepDirectoryTreeIteratively()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        var sourceDirectory = Path.Combine(workspace.RootPath, "deep");
+        var currentSourcePath = sourceDirectory;
+        var depth = OperatingSystem.IsWindows() ? 48 : 256;
+        for (var index = 0; index < depth; index++)
+        {
+            currentSourcePath = Path.Combine(currentSourcePath, "d");
+            Directory.CreateDirectory(currentSourcePath);
+        }
+
+        var sourceFile = Path.Combine(currentSourcePath, "leaf.txt");
+        File.WriteAllText(sourceFile, "deep content");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var (repository, executor) = CreateExecutor(workspace, destinationRoot);
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "deep")], new FileRef("destination", "inbox"));
+
+        await executor.ExecuteAsync(task, CancellationToken.None);
+        var running = await repository.GetAsync(task.Id);
+
+        var copiedFile = Path.Combine(destinationDirectory, "deep");
+        for (var index = 0; index < depth; index++)
+        {
+            copiedFile = Path.Combine(copiedFile, "d");
+        }
+
+        copiedFile = Path.Combine(copiedFile, "leaf.txt");
+        Assert.NotNull(running);
+        Assert.Equal("deep content", File.ReadAllText(copiedFile));
+        Assert.Equal(new FileInfo(sourceFile).Length, running.BytesDone);
+        Assert.Equal(running.BytesTotal, running.BytesDone);
+        Assert.Equal(depth + 2, running.ItemsTotal);
+        Assert.Equal(running.ItemsTotal, running.ItemsDone);
+        Assert.All(running.Items, item => Assert.Equal("completed", item.Status));
+    }
+
+    [Fact]
+    public async Task BuildPlan_PropagatesCancellationDuringDirectoryScan()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        var sourceDirectory = Path.Combine(workspace.RootPath, "source");
+        Directory.CreateDirectory(sourceDirectory);
+        File.WriteAllText(Path.Combine(sourceDirectory, "file.txt"), "content");
+        Directory.CreateDirectory(Path.Combine(destinationRoot, "inbox"));
+        var (repository, engine) = CreateEngine(workspace, destinationRoot);
+        var task = await repository.CreateQueuedAsync(
+            FileTaskType.Copy,
+            [new FileRef("source", "source")],
+            new FileRef("destination", "inbox"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => engine.BuildPlan(task, cancellation.Token));
+    }
+
+    [Fact]
     public async Task Execute_CollectsPreflightErrorsAndDoesNotCopyAnything()
     {
         using var workspace = new TestWorkspace();
@@ -227,7 +287,7 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
-    public async Task Execute_CancellationLeavesRegisteredArtifactForStartupCleanup()
+    public async Task Execute_CancellationDuringCopyLeavesRegisteredArtifactForStartupCleanup()
     {
         using var workspace = new TestWorkspace();
         var destinationRoot = CreateDestinationRoot(workspace);
@@ -246,10 +306,9 @@ public sealed class CopyTaskExecutorTests
             """);
         var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
         var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
-        var executor = new CopyTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
-        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source.txt")], new FileRef("destination", "inbox"));
         using var cancellation = new CancellationTokenSource();
-        cancellation.Cancel();
+        var executor = new CopyTaskExecutor(new CancellingCopyEngine(resolver, repository, new TaskProgressService(), cancellation));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source.txt")], new FileRef("destination", "inbox"));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(task, cancellation.Token));
 
@@ -258,7 +317,7 @@ public sealed class CopyTaskExecutorTests
         var artifact = Assert.Single(await repository.GetTemporaryArtifactsAsync());
         Assert.StartsWith(".filebrowser-", Path.GetFileName(artifact.File.Path), StringComparison.Ordinal);
         var artifactPath = Path.Combine(destinationDirectory, Path.GetFileName(artifact.File.Path));
-        Assert.True(File.Exists(artifactPath));
+        Assert.False(File.Exists(artifactPath));
 
         await repository.InterruptActiveTasksAsync();
         var cleanup = new TemporaryArtifactCleanupService(repository, resolver, NullLogger<TemporaryArtifactCleanupService>.Instance);
@@ -332,6 +391,38 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
+    public async Task TemporaryCleanup_RemovesRegisteredDeepDirectoryArtifact()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        var configPath = workspace.WriteRawConfiguration($"""
+            roots:
+              - name: destination
+                path: '{destinationRoot}'
+            """);
+        var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
+        var task = await repository.CreateQueuedAsync(FileTaskType.Copy, [new FileRef("destination", "missing.txt")], new FileRef("destination", ""));
+        var registeredName = ".filebrowser-deep";
+        var artifactPath = Path.Combine(destinationRoot, registeredName);
+        var currentPath = artifactPath;
+        var depth = OperatingSystem.IsWindows() ? 24 : 128;
+        for (var index = 0; index < depth; index++)
+        {
+            currentPath = Path.Combine(currentPath, "d");
+            Directory.CreateDirectory(currentPath);
+        }
+
+        File.WriteAllText(Path.Combine(currentPath, "leaf.txt"), "temporary");
+        await repository.RegisterTemporaryArtifactAsync(task.Id, new FileRef("destination", registeredName));
+        var cleanup = new TemporaryArtifactCleanupService(repository, new PathResolver(FileBrowserConfigurationLoader.Load(configPath)), NullLogger<TemporaryArtifactCleanupService>.Instance);
+
+        await cleanup.CleanupAsync(CancellationToken.None);
+
+        Assert.False(Directory.Exists(artifactPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
     public async Task Execute_ConcurrentPublicationKeepsExistingDataAndReportsNameConflict()
     {
         using var workspace = new TestWorkspace();
@@ -381,6 +472,12 @@ public sealed class CopyTaskExecutorTests
 
     private static (TaskRepository Repository, CopyTaskExecutor Executor) CreateExecutor(TestWorkspace workspace, string destinationRoot)
     {
+        var (repository, engine) = CreateEngine(workspace, destinationRoot);
+        return (repository, new CopyTaskExecutor(engine));
+    }
+
+    private static (TaskRepository Repository, FileTransferEngine Engine) CreateEngine(TestWorkspace workspace, string destinationRoot)
+    {
         var configPath = workspace.WriteRawConfiguration($"""
             workers: 1
             roots:
@@ -392,7 +489,7 @@ public sealed class CopyTaskExecutorTests
         var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
         var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
         var engine = new FileTransferEngine(resolver, repository, new TaskProgressService());
-        return (repository, new CopyTaskExecutor(engine));
+        return (repository, engine);
     }
 
     private static async Task<FileTask> CreateScanningTaskAsync(TaskRepository repository, IReadOnlyList<FileRef> sources, FileRef destination)
@@ -493,6 +590,24 @@ public sealed class CopyTaskExecutorTests
             Environment.SetEnvironmentVariable("ConfigPath", originalConfigPath);
             Environment.SetEnvironmentVariable("DatabasePath", originalDatabasePath);
             Environment.SetEnvironmentVariable("Logging__EventLog__LogLevel__Default", originalEventLogLevel);
+        }
+    }
+
+    private sealed class CancellingCopyEngine(
+        PathResolver resolver,
+        TaskRepository repository,
+        TaskProgressService progress,
+        CancellationTokenSource cancellation) : FileTransferEngine(resolver, repository, progress)
+    {
+        internal override Task CopyEntryAsync(
+            FileTransferPlanEntry entry,
+            string destinationPath,
+            TransferProgress progress,
+            CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            return base.CopyEntryAsync(entry, destinationPath, progress, cancellationToken);
         }
     }
 
