@@ -22,6 +22,11 @@ public sealed class FileSystemReadService
 
     public DirectoryListingDto List(FileRef directoryRef)
     {
+        if (VirtualRoot.IsVirtualRoot(directoryRef.Root))
+        {
+            return ListVirtualRoot(directoryRef.Path);
+        }
+
         var resolved = _pathResolver.ResolveExisting(directoryRef);
         if (!resolved.IsDirectory)
         {
@@ -72,6 +77,12 @@ public sealed class FileSystemReadService
 
     public ResolvedFile OpenFile(FileRef fileRef)
     {
+        if (VirtualRoot.IsVirtualRoot(fileRef.Root))
+        {
+            var (rootName, rest) = VirtualRoot.SplitPath(fileRef.Path);
+            return OpenFile(new FileRef(rootName, rest));
+        }
+
         var resolved = _pathResolver.ResolveExisting(fileRef);
         if (resolved.IsDirectory)
         {
@@ -102,6 +113,47 @@ public sealed class FileSystemReadService
         }
     }
 
+    private DirectoryListingDto ListVirtualRoot(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            var entries = new List<FileEntryDto>();
+            foreach (var root in _configuration.Roots)
+            {
+                DateTimeOffset? modifiedAtUtc = null;
+                var kind = "unsupported";
+                if (IsAvailable(root.Name))
+                {
+                    kind = "directory";
+                    try
+                    {
+                        modifiedAtUtc = new DateTimeOffset(Directory.GetLastWriteTimeUtc(root.PhysicalPath), TimeSpan.Zero);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                }
+
+                entries.Add(new FileEntryDto(root.Name, root.Name, kind, null, modifiedAtUtc));
+            }
+
+            var ordered = entries
+                .OrderBy(entry => entry.Name, StringComparer.Ordinal)
+                .ToArray();
+            return new DirectoryListingDto(VirtualRoot.VirtualRootName, string.Empty, ordered);
+        }
+
+        var (rootName, rest) = VirtualRoot.SplitPath(path);
+        var listing = List(new FileRef(rootName, rest));
+        var prefixed = listing.Entries
+            .Select(entry => entry with { Path = $"{rootName}/{entry.Path}" })
+            .ToArray();
+        return new DirectoryListingDto(VirtualRoot.VirtualRootName, path, prefixed);
+    }
+
     private bool IsAvailable(string rootName)
     {
         try
@@ -126,4 +178,4 @@ public sealed record ResolvedFile(string Name, FileStream Stream);
 
 public sealed record DirectoryListingDto(string Root, string Path, IReadOnlyList<FileEntryDto> Entries);
 
-public sealed record FileEntryDto(string Name, string Path, string Kind, long? Size, DateTimeOffset ModifiedAtUtc);
+public sealed record FileEntryDto(string Name, string Path, string Kind, long? Size, DateTimeOffset? ModifiedAtUtc);

@@ -91,6 +91,11 @@ public sealed class PathResolver
 
     private ConfiguredRoot GetRoot(string rootName)
     {
+        if (VirtualRoot.IsVirtualRoot(rootName))
+        {
+            throw new InvalidFileSystemRequestException("Виртуальный корень доступен только для чтения.");
+        }
+
         if (string.IsNullOrWhiteSpace(rootName) || !_configuration.RootsByName.TryGetValue(rootName, out var root))
         {
             throw new FileSystemObjectNotFoundException("Указанный корень не найден.");

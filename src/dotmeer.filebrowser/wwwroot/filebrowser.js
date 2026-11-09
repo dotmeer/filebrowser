@@ -9,6 +9,13 @@ window.fileBrowser = {
         });
     },
 
+    scrollToHighlighted: () => {
+        const row = document.querySelector(".file-table tr.row-highlighted");
+        if (row) {
+            row.scrollIntoView({ block: "center" });
+        }
+    },
+
     registerReconnectRefresh: (dotNetReference) => {
         const reconnectModal = document.getElementById("components-reconnect-modal");
         if (!reconnectModal) {

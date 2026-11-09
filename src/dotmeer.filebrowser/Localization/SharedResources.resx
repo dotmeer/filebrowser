@@ -186,4 +186,14 @@
   <data name="Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично." xml:space="preserve"><value>Destination was created, but the source was not deleted. The source may remain fully or partially.</value></data>
   <data name="Исполнитель задачи завершился ошибкой." xml:space="preserve"><value>The task executor failed.</value></data>
   <data name="Задача прервана перезапуском приложения." xml:space="preserve"><value>The task was interrupted by an application restart.</value></data>
+  <data name="Поиск в текущей папке" xml:space="preserve"><value>Search in current folder</value></data>
+  <data name="Найти" xml:space="preserve"><value>Search</value></data>
+  <data name="Результаты поиска: «{0}»" xml:space="preserve"><value>Search results: &quot;{0}&quot;</value></data>
+  <data name="Закрыть поиск" xml:space="preserve"><value>Close search</value></data>
+  <data name="Поиск…" xml:space="preserve"><value>Searching…</value></data>
+  <data name="Ничего не найдено." xml:space="preserve"><value>Nothing found.</value></data>
+  <data name="Результатов больше, чем показано" xml:space="preserve"><value>There are more results than shown.</value></data>
+  <data name="Все корни" xml:space="preserve"><value>All roots</value></data>
+  <data name="В виртуальном корне доступно только чтение" xml:space="preserve"><value>The virtual root is read-only.</value></data>
+  <data name="Некоторые корни недоступны и не участвовали в поиске: {0}" xml:space="preserve"><value>Some roots are unavailable and were not searched: {0}</value></data>
 </root>

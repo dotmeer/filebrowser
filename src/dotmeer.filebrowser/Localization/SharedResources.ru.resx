@@ -186,4 +186,14 @@
   <data name="Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично." xml:space="preserve"><value>Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично.</value></data>
   <data name="Исполнитель задачи завершился ошибкой." xml:space="preserve"><value>Исполнитель задачи завершился ошибкой.</value></data>
   <data name="Задача прервана перезапуском приложения." xml:space="preserve"><value>Задача прервана перезапуском приложения.</value></data>
+  <data name="Поиск в текущей папке" xml:space="preserve"><value>Поиск в текущей папке</value></data>
+  <data name="Найти" xml:space="preserve"><value>Найти</value></data>
+  <data name="Результаты поиска: «{0}»" xml:space="preserve"><value>Результаты поиска: «{0}»</value></data>
+  <data name="Закрыть поиск" xml:space="preserve"><value>Закрыть поиск</value></data>
+  <data name="Поиск…" xml:space="preserve"><value>Поиск…</value></data>
+  <data name="Ничего не найдено." xml:space="preserve"><value>Ничего не найдено.</value></data>
+  <data name="Результатов больше, чем показано" xml:space="preserve"><value>Результатов больше, чем показано</value></data>
+  <data name="Все корни" xml:space="preserve"><value>Все корни</value></data>
+  <data name="В виртуальном корне доступно только чтение" xml:space="preserve"><value>В виртуальном корне доступно только чтение</value></data>
+  <data name="Некоторые корни недоступны и не участвовали в поиске: {0}" xml:space="preserve"><value>Некоторые корни недоступны и не участвовали в поиске: {0}</value></data>
 </root>

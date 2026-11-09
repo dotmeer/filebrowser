@@ -65,6 +65,8 @@ builder.Services.AddFileBrowserObservability(builder.Configuration);
 builder.Services.AddSingleton(fileBrowserConfiguration);
 builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
+builder.Services.AddSingleton<FileSystemSearchService>();
+builder.Services.AddSingleton<SearchMetrics>();
 builder.Services.AddSingleton<FileSystemWriteService>();
 builder.Services.AddSingleton(taskDatabase);
 builder.Services.AddSingleton<TaskNotificationService>();

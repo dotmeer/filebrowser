@@ -34,13 +34,24 @@
             <div class="tree-message tree-error">@_error</div>
             <button class="tree-retry" type="button" @onclick="LoadChildrenAsync">@L["Повторить"]</button>
         }
-        else if (_children is { Count: > 0 })
+        else if (HasVisibleChildren)
         {
             <ul>
-                @foreach (var child in _children)
+                @if (ChildRoots is not null)
                 {
-                    <DirectoryTreeNode @key="child.Path" Root="@Root" Name="@child.Name" Path="@child.Path"
-                                       OnNavigate="@OnNavigate" />
+                    @foreach (var childRoot in ChildRoots)
+                    {
+                        <DirectoryTreeNode @key="childRoot.Name" Root="@childRoot.Name" Name="@childRoot.Name" Path=""
+                                           Available="@childRoot.Available" OnNavigate="@OnNavigate" />
+                    }
+                }
+                else
+                {
+                    @foreach (var child in _children!)
+                    {
+                        <DirectoryTreeNode @key="child.Path" Root="@Root" Name="@child.Name" Path="@child.Path"
+                                           OnNavigate="@OnNavigate" />
+                    }
                 }
             </ul>
         }
@@ -55,11 +66,20 @@
     [Parameter] public bool Available { get; set; } = true;
     [Parameter] public EventCallback<FileRef> OnNavigate { get; set; }
 
+    /// <summary>
+    /// Синтетические дочерние корни (узел «Все корни», SPEC §9.1): список
+    /// настроенных корней из конфигурации, доступный серверу без обхода ФС.
+    /// Когда задан, загрузка детей через FileSystemReadService не
+    /// выполняется, ленивость сохраняется (дети рендерятся при раскрытии).
+    /// </summary>
+    [Parameter] public IReadOnlyList<RootDto>? ChildRoots { get; set; }
+
     private bool Expanded { get; set; }
     private bool _loading;
     private string? _error;
     private IReadOnlyList<FileEntryDto>? _children;
     private bool CanExpand => _children is null || _children.Count > 0;
+    private bool HasVisibleChildren => ChildRoots is not null ? ChildRoots.Count > 0 : _children is { Count: > 0 };
 
     private async Task ToggleAsync()
     {
@@ -70,7 +90,7 @@
         }
 
         Expanded = true;
-        if (_children is null && _error is null)
+        if (ChildRoots is null && _children is null && _error is null)
         {
             await LoadChildrenAsync();
         }

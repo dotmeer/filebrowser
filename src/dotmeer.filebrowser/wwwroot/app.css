@@ -363,6 +363,117 @@ h1:focus {
     color: var(--on-surface-variant);
 }
 
+/* ===== Поиск (SPEC §9.7) ===== */
+.search-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-right: auto;
+}
+
+.search-form .search-input {
+    width: 16rem;
+    border-color: var(--outline);
+}
+
+.search-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--surface);
+}
+
+.search-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-close {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: var(--on-surface-variant);
+    padding: 0.25rem 0.55rem;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+    .search-close:hover, .search-close:focus {
+        color: var(--primary);
+        background: var(--surface-hover);
+    }
+
+.search-truncated {
+    margin: 0;
+    padding: 0.6rem 1rem;
+    color: var(--warning);
+    font-size: 0.9rem;
+}
+
+/* Уведомление о недоступных корнях в поиске по виртуальному корню (SPEC §9.7) */
+.search-unavailable-roots {
+    margin: 0;
+    padding: 0.6rem 1rem;
+    color: var(--on-surface-variant);
+    font-size: 0.9rem;
+}
+
+/* Подзаголовок с родительским путём в результатах поиска (SPEC §9.7) */
+.search-file-name {
+    white-space: normal;
+}
+
+.search-parent-path {
+    display: block;
+    max-width: 30rem;
+    color: var(--on-surface-variant);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Неопределённый индикатор прогресса (состояние «Поиск…», §9.6) */
+.indeterminate-progress {
+    position: relative;
+    overflow: hidden;
+    width: 14rem;
+    height: 0.25rem;
+    margin: 0.9rem auto 0;
+    background: var(--outline-variant);
+}
+
+    .indeterminate-progress::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 35%;
+        background: var(--primary);
+        animation: indeterminate-slide 1.1s ease-in-out infinite;
+    }
+
+@keyframes indeterminate-slide {
+    0% {
+        left: -35%;
+    }
+
+    100% {
+        left: 100%;
+    }
+}
+
+/* Подсветка строки найденного файла (параметр highlight) */
+.file-table tr.row-highlighted {
+    background: var(--surface-hover);
+    box-shadow: inset 2px 0 0 var(--primary);
+}
+
 /* ===== Контекстное меню ===== */
 .file-context-menu {
     position: fixed;

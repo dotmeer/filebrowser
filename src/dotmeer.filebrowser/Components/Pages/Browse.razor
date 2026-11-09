@@ -1,9 +1,10 @@
-@page "/browse"
+﻿@page "/browse"
 @rendermode InteractiveServer
 @using System.Globalization
 @using Microsoft.AspNetCore.WebUtilities
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
+@inject FileSystemSearchService SearchService
 @inject FileSystemWriteService Writer
 @inject TaskDispatcher Dispatcher
 @inject NavigationManager Navigation
@@ -28,11 +29,10 @@
             else
             {
                 <ul class="directory-tree">
-                    @foreach (var root in _roots)
-                    {
-                        <DirectoryTreeNode @key="root.Name" Root="@root.Name" Name="@root.Name" Path="" IsRoot="true"
-                                           Available="@root.Available" OnNavigate="NavigateToAsync" />
-                    }
+                    <DirectoryTreeNode @key="VirtualRoot.VirtualRootName"
+                                       Root="@VirtualRoot.VirtualRootName" Name="@L["Все корни"]" Path=""
+                                       IsRoot="true" Available="true" ChildRoots="@_roots"
+                                       OnNavigate="NavigateToAsync" />
                 </ul>
             }
         </aside>
@@ -40,35 +40,65 @@
 
         <main class="directory-content">
             <div class="browse-actions" aria-label="@L["Действия с файлами"]">
-                <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
-                    @L["Обновить"]
-                </button>
-                <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog" disabled="@(_loading || _listing is null)">
-                    @L["Создать папку"]
-                </button>
-                <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected" disabled="@(SelectedEntry is null || _loading)">
-                    @L["Переименовать"]
-                </button>
-                <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected" disabled="@(!CanStartTask || _loading)">
-                    @L["Копировать"]
-                </button>
-                <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected" disabled="@(!CanStartTask || _loading)">
-                    @L["Переместить"]
-                </button>
-                @if (SelectedFileDownloadUrl is not null)
+                <form class="search-form" role="search" @onsubmit="SubmitSearchAsync" @onsubmit:preventDefault>
+                    <input class="form-control search-input" type="search" @bind="_searchInput" @bind:event="oninput"
+                           placeholder="@L["Поиск в текущей папке"]" aria-label="@L["Поиск в текущей папке"]"
+                           disabled="@_searching" />
+                    <button class="btn btn-primary" type="submit"
+                            disabled="@(_searching || string.IsNullOrWhiteSpace(_searchInput))">
+                        @L["Найти"]
+                    </button>
+                </form>
+                @if (!IsSearchActive)
                 {
-                    <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>@L["Скачать"]</a>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="RefreshAsync" disabled="@_loading">
+                        @L["Обновить"]
+                    </button>
+                    <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog"
+                            disabled="@(_loading || _listing is null || IsVirtualRootView)"
+                            title="@VirtualRootReadOnlyHint">
+                        @L["Создать папку"]
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected"
+                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootView)"
+                            title="@VirtualRootReadOnlyHint">
+                        @L["Переименовать"]
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected"
+                            disabled="@(!CanStartTask || _loading || IsVirtualRootView)"
+                            title="@VirtualRootReadOnlyHint">
+                        @L["Копировать"]
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected"
+                            disabled="@(!CanStartTask || _loading || IsVirtualRootView)"
+                            title="@VirtualRootReadOnlyHint">
+                        @L["Переместить"]
+                    </button>
+                    @if (SelectedFileDownloadUrl is not null)
+                    {
+                        <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>@L["Скачать"]</a>
+                    }
+                    else
+                    {
+                        <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
+                    }
+                    <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
+                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootView)"
+                            title="@VirtualRootReadOnlyHint">
+                        @L["Удалить"]
+                    </button>
                 }
-                else
-                {
-                    <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
-                }
-                <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected" disabled="@(SelectedEntry is null || _loading)">
-                    @L["Удалить"]
-                </button>
             </div>
 
-            @if (_listing is not null)
+            @if (IsSearchActive)
+            {
+                <div class="search-header">
+                    <h2 class="search-title">@L["Результаты поиска: «{0}»", SearchQuery!]</h2>
+                    <button class="search-close" type="button" @onclick="CloseSearchAsync"
+                            aria-label="@L["Закрыть поиск"]" title="@L["Закрыть поиск"]">✕</button>
+                </div>
+            }
+            else if (_listing is not null)
             {
                 <nav class="breadcrumbs" aria-label="@L["Путь к каталогу"]">
                     <button type="button" @onclick="() => NavigateToAsync(new FileRef(_listing.Root, string.Empty))">
@@ -84,9 +114,15 @@
                 </nav>
             }
 
-            @if (_loading)
+            @if (_loading || _searching)
             {
-                <div class="browse-state" role="status">@L["Загрузка каталога…"]</div>
+                <div class="browse-state" role="status">
+                    @(_searching ? L["Поиск…"] : L["Загрузка каталога…"])
+                    @if (_searching)
+                    {
+                        <div class="indeterminate-progress" aria-hidden="true"></div>
+                    }
+                </div>
             }
             else if (_error is not null)
             {
@@ -95,6 +131,86 @@
                     <p>@L["Проверьте адрес или выберите доступный корень дерева."]</p>
                     <button class="btn btn-outline-primary" type="button" @onclick="GoToFirstRootAsync">@L["К корню"]</button>
                 </div>
+            }
+            else if (IsSearchActive)
+            {
+                @if (_searchResult is { Results.Count: 0 })
+                {
+                    <div class="browse-state">@L["Ничего не найдено."]</div>
+                }
+                else if (_searchResult is not null)
+                {
+                    <div class="table-responsive">
+                        <table class="table file-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col" aria-hidden="true"></th>
+                                    <th scope="col">@L["Имя"]</th>
+                                    <th scope="col">@L["Тип"]</th>
+                                    <th scope="col">@L["Размер"]</th>
+                                    <th scope="col">@L["Изменён"]</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _searchResult.Results)
+                                {
+                                    var parentPath = SearchNavigation.GetParentPath(entry.Path);
+                                    // Подзаголовок и tooltip показывают путь от корня:
+                                    // для виртуального корня пути результатов уже
+                                    // начинаются с имени реального корня (§9.7).
+                                    var isVirtualRootSearch = string.Equals(
+                                        _searchResult.Root, VirtualRoot.VirtualRootName, StringComparison.Ordinal);
+                                    var displayParentPath = isVirtualRootSearch
+                                        ? parentPath
+                                        : parentPath.Length > 0
+                                            ? $"{_searchResult.Root}/{parentPath}"
+                                            : _searchResult.Root;
+                                    var fullDisplayPath = isVirtualRootSearch
+                                        ? entry.Path
+                                        : $"{_searchResult.Root}/{entry.Path}";
+                                    <tr @key="entry.Path">
+                                        <td aria-hidden="true"></td>
+                                        <td class="file-name search-file-name" title="@fullDisplayPath">
+                                            @if (entry.Kind == "directory")
+                                            {
+                                                <button class="entry-link" type="button"
+                                                        @onclick="() => NavigateToAsync(new FileRef(_searchResult.Root, entry.Path))">
+                                                    <span aria-hidden="true">📁</span> @entry.Name
+                                                </button>
+                                            }
+                                            else if (entry.Kind == "unsupported")
+                                            {
+                                                <span class="unsupported-entry" title="@L["Этот объект нельзя открыть"]">
+                                                    <span aria-hidden="true">⚠</span> @entry.Name
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <button class="entry-link" type="button" @onclick="() => OpenSearchResultAsync(entry)">
+                                                    <span aria-hidden="true">📄</span> @entry.Name
+                                                </button>
+                                            }
+                                            <span class="search-parent-path" title="@fullDisplayPath">/@displayParentPath</span>
+                                        </td>
+                                        <td>@GetKindLabel(entry.Kind)</td>
+                                        <td>@FormatSize(entry.Size)</td>
+                                        <td>@RenderModifiedAt(entry.ModifiedAtUtc)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (_searchResult.UnavailableRoots.Count > 0)
+                    {
+                        <p class="search-unavailable-roots" role="status">
+                            @L["Некоторые корни недоступны и не участвовали в поиске: {0}", string.Join(", ", _searchResult.UnavailableRoots)]
+                        </p>
+                    }
+                    @if (_searchResult.Truncated)
+                    {
+                        <p class="search-truncated" role="status">@L["Результатов больше, чем показано"]</p>
+                    }
+                }
             }
             else if (_listing is not null && _listing.Entries.Count == 0)
             {
@@ -116,7 +232,7 @@
                         <tbody>
                             @foreach (var entry in _listing.Entries)
                             {
-                                <tr @key="entry.Path" @oncontextmenu:preventDefault @oncontextmenu="args => OpenContextMenu(entry, args)">
+                                <tr @key="entry.Path" class="@GetRowHighlightClass(entry)" @oncontextmenu:preventDefault @oncontextmenu="args => OpenContextMenu(entry, args)">
                                     <td>
                                         <input class="form-check-input" type="checkbox" aria-label="@L["Выбрать {0}", entry.Name]"
                                                checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind == "unsupported")"
@@ -143,7 +259,7 @@
                                     </td>
                                     <td>@GetKindLabel(entry.Kind)</td>
                                     <td>@FormatSize(entry.Size)</td>
-                                    <td><time class="local-time" datetime="@entry.ModifiedAtUtc.ToString("O", CultureInfo.InvariantCulture)">@entry.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC</time></td>
+                                    <td>@RenderModifiedAt(entry.ModifiedAtUtc)</td>
                                 </tr>
                             }
                         </tbody>
@@ -238,8 +354,17 @@
     [SupplyParameterFromQuery(Name = "path")]
     public string? PathQuery { get; set; }
 
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? SearchQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "highlight")]
+    public string? HighlightQuery { get; set; }
+
     private IReadOnlyList<RootDto> _roots = [];
     private DirectoryListingDto? _listing;
+    private SearchResultDto? _searchResult;
+    private string _searchInput = string.Empty;
+    private bool _searching;
     private readonly HashSet<string> _selection = new(StringComparer.Ordinal);
     private string? _error;
     private bool _loading;
@@ -271,6 +396,21 @@
 
     private bool CanStartTask => SelectedEntries.Count > 0;
 
+    private bool IsSearchActive => !string.IsNullOrWhiteSpace(SearchQuery);
+
+    /// <summary>
+    /// Текущая панель показывает виртуальный корень (SPEC §9.1): изменяющие
+    /// действия заблокированы, чтение, скачивание и поиск доступны.
+    /// </summary>
+    private bool IsVirtualRootView => VirtualRoot.IsVirtualRoot(_listing?.Root ?? RootQuery);
+
+    /// <summary>
+    /// Локализованная подсказка для заблокированных кнопок внутри виртуального
+    /// корня (SPEC §9.1); null вне виртуального корня — title не рендерится.
+    /// </summary>
+    private string? VirtualRootReadOnlyHint =>
+        IsVirtualRootView ? (string?)L["В виртуальном корне доступно только чтение"] : null;
+
     private string? SelectedFileDownloadUrl =>
         SelectedEntry is { Kind: "file" } entry ? GetDownloadUrl(entry) : null;
 
@@ -291,6 +431,10 @@
         try
         {
             await JavaScript.InvokeVoidAsync("fileBrowser.formatLocalTimes");
+            if (!string.IsNullOrEmpty(HighlightQuery))
+            {
+                await JavaScript.InvokeVoidAsync("fileBrowser.scrollToHighlighted");
+            }
         }
         catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
         {
@@ -320,16 +464,42 @@
             {
                 _error = L["Не настроен ни один корень файловой системы."];
                 _listing = null;
+                _searchResult = null;
                 return;
             }
 
-            _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty)));
+            if (IsSearchActive)
+            {
+                _listing = null;
+                _searchInput = SearchQuery!;
+                _searchResult = null;
+                _searching = true;
+                if (RendererInfo.IsInteractive)
+                {
+                    // Показать «Поиск…» до завершения синхронного обхода.
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                _searchResult = SearchService.Search(
+                    new FileRef(root, PathQuery ?? string.Empty),
+                    SearchQuery!,
+                    ext: null,
+                    extGlobs: null,
+                    limit: FileSystemSearchService.DefaultResultLimit,
+                    cancellationToken: CancellationToken.None);
+            }
+            else
+            {
+                _searchResult = null;
+                _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty)));
+            }
         }
         catch (Exception exception)
         {
             if (requestVersion == _requestVersion)
             {
                 _listing = null;
+                _searchResult = null;
                 _error = GetSafeError(exception);
             }
         }
@@ -339,15 +509,63 @@
             {
                 _rootsLoading = false;
                 _loading = false;
+                _searching = false;
             }
         }
     }
 
     private Task RefreshAsync() => LoadCurrentAsync();
 
+    private Task SubmitSearchAsync()
+    {
+        var query = _searchInput.Trim();
+        if (_searching || query.Length == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var location = CurrentLocation;
+        Navigation.NavigateTo(SearchNavigation.BuildSearchUrl(location.Root, location.Path, query));
+        return Task.CompletedTask;
+    }
+
+    private Task CloseSearchAsync()
+    {
+        var location = CurrentLocation;
+        Navigation.NavigateTo(SearchNavigation.BuildBrowseUrl(location.Root, location.Path));
+        return Task.CompletedTask;
+    }
+
+    private Task OpenSearchResultAsync(FileEntryDto entry)
+    {
+        if (_searchResult is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        Navigation.NavigateTo(SearchNavigation.BuildBrowseUrl(
+            _searchResult.Root,
+            SearchNavigation.GetParentPath(entry.Path),
+            entry.Name));
+        return Task.CompletedTask;
+    }
+
+    private FileRef CurrentLocation =>
+        IsSearchActive && _searchResult is not null
+            ? new FileRef(_searchResult.Root, _searchResult.Path)
+            : _listing is not null
+                ? new FileRef(_listing.Root, _listing.Path)
+                : new FileRef(RootQuery ?? string.Empty, PathQuery ?? string.Empty);
+
+    private string? GetRowHighlightClass(FileEntryDto entry) =>
+        !IsSearchActive && !string.IsNullOrEmpty(HighlightQuery)
+            && string.Equals(entry.Name, HighlightQuery, StringComparison.Ordinal)
+                ? "row-highlighted"
+                : null;
+
     private void OpenContextMenu(FileEntryDto entry, MouseEventArgs args)
     {
-        if (entry.Kind == "unsupported")
+        if (IsSearchActive || IsVirtualRootView || entry.Kind == "unsupported")
         {
             return;
         }
@@ -585,6 +803,21 @@
         "directory" => L["Папка"],
         "file" => L["Файл"],
         _ => L["Не поддерживается"]
+    };
+
+    private static RenderFragment RenderModifiedAt(DateTimeOffset? modifiedAtUtc) => builder =>
+    {
+        if (modifiedAtUtc is not { } value)
+        {
+            builder.AddContent(0, "—");
+            return;
+        }
+
+        builder.OpenElement(0, "time");
+        builder.AddAttribute(1, "class", "local-time");
+        builder.AddAttribute(2, "datetime", value.ToString("O", CultureInfo.InvariantCulture));
+        builder.AddContent(3, $"{value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC");
+        builder.CloseElement();
     };
 
     private string FormatSize(long? size)
