@@ -186,7 +186,7 @@ public sealed class TaskInfrastructureTests
 
         public List<string> SourcePaths { get; } = [];
 
-        public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken)
+        public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken)
         {
             TaskId = task.Id;
             SourcePaths.Add(task.Sources.Single().Path);

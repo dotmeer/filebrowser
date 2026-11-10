@@ -77,6 +77,8 @@ builder.Services.AddSingleton<TaskQueue>();
 builder.Services.AddSingleton<TaskDispatcher>();
 builder.Services.AddSingleton<TemporaryArtifactCleanupService>();
 builder.Services.AddSingleton<TaskProgressService>();
+builder.Services.AddSingleton<TaskCancellationRegistry>();
+builder.Services.AddSingleton<TaskCancellationService>();
 builder.Services.AddSingleton<TaskPresentation>();
 builder.Services.AddSingleton<FileTransferEngine>();
 builder.Services.AddSingleton<CopyTaskExecutor>();

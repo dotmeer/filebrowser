@@ -87,10 +87,41 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
 
                 candidate.FinalPhysicalPath = finalPath;
             }
+
+            var totalBytes = candidates.Sum(candidate => candidate.Bytes);
+            if (totalBytes > 0 && IsFreeSpaceCheckRequired(task, candidates[0].SourcePath, destination))
+            {
+                long availableFreeSpace;
+                try
+                {
+                    availableFreeSpace = GetAvailableFreeSpace(destination.PhysicalPath);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DriveNotFoundException)
+                {
+                    // Advisory-проверка: если место определить нельзя, операция не блокируется.
+                    availableFreeSpace = -1;
+                }
+
+                if (availableFreeSpace >= 0 && availableFreeSpace < totalBytes)
+                {
+                    errors.Add(new FileTransferPlanError(null, FileTaskErrorCodes.InsufficientSpace));
+                }
+            }
         }
 
         return new FileTransferPlan(destination, candidates, errors);
     }
+
+    /// <summary>
+    /// Copy всегда требует места в назначении. Move — только при переносе
+    /// между томами: rename внутри тома места не занимает.
+    /// </summary>
+    internal virtual bool IsFreeSpaceCheckRequired(FileTask task, ResolvedPath source, ResolvedPath destination) =>
+        task.Type == FileTaskType.Copy
+        || !string.Equals(Path.GetPathRoot(source.PhysicalPath), Path.GetPathRoot(destination.PhysicalPath), StringComparison.OrdinalIgnoreCase);
+
+    internal virtual long GetAvailableFreeSpace(string physicalPath) =>
+        new DriveInfo(Path.GetPathRoot(physicalPath)!).AvailableFreeSpace;
 
     internal async Task FailPreflightAsync(FileTask task, FileTransferPlan plan, CancellationToken cancellationToken)
     {
@@ -239,12 +270,15 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
     internal Task FailItemAsync(Guid taskId, FileTransferPlanEntry entry, string error, CancellationToken cancellationToken) =>
         repository.UpdateTaskItemAsync(taskId, entry.Source, "failed", error, 0, entry.ItemCount, cancellationToken);
 
-    internal async Task SkipRemainingAsync(Guid taskId, FileTransferPlan plan, int currentIndex, CancellationToken cancellationToken)
+    internal Task CancelItemAsync(Guid taskId, FileTransferPlanEntry entry, CancellationToken cancellationToken) =>
+        repository.UpdateTaskItemAsync(taskId, entry.Source, "not_processed", FileTaskErrorCodes.CancelledByUser, 0, entry.ItemCount, cancellationToken);
+
+    internal async Task SkipRemainingAsync(Guid taskId, FileTransferPlan plan, int currentIndex, string skipErrorCode, CancellationToken cancellationToken)
     {
         for (var remaining = currentIndex + 1; remaining < plan.Entries.Count; remaining++)
         {
             var pending = plan.Entries[remaining];
-            await repository.UpdateTaskItemAsync(taskId, pending.Source, "not_processed", FileTaskErrorCodes.SkippedAfterError, 0, pending.ItemCount, cancellationToken);
+            await repository.UpdateTaskItemAsync(taskId, pending.Source, "not_processed", skipErrorCode, 0, pending.ItemCount, cancellationToken);
         }
     }
 

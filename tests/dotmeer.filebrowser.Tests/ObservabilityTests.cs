@@ -149,7 +149,7 @@ public sealed class ObservabilityTests
     {
         public TaskCompletionSource Executed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken)
+        public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken)
         {
             Executed.TrySetResult();
             return Task.CompletedTask;

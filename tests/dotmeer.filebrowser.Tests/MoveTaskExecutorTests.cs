@@ -30,7 +30,7 @@ public sealed class MoveTaskExecutorTests
             [new FileRef("source", "note.txt"), new FileRef("source", "album")],
             new FileRef("destination", "inbox"));
 
-        await executor.ExecuteAsync(task, CancellationToken.None);
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
         var running = await repository.GetAsync(task.Id);
 
         Assert.NotNull(running);
@@ -60,7 +60,7 @@ public sealed class MoveTaskExecutorTests
         var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
         var scanned = await repository.GetAsync(task.Id);
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
@@ -87,7 +87,7 @@ public sealed class MoveTaskExecutorTests
             [new FileRef("source", "source-directory")],
             new FileRef("source", "source-directory/nested"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
@@ -114,7 +114,7 @@ public sealed class MoveTaskExecutorTests
             [new FileRef("source", "first.txt"), new FileRef("source", "other/second.txt")],
             new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
@@ -146,7 +146,7 @@ public sealed class MoveTaskExecutorTests
             [new FileRef("source", "a.txt"), new FileRef("source", "b.txt"), new FileRef("source", "c.txt")],
             new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
         var running = await repository.GetAsync(task.Id);
 
         Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
@@ -172,7 +172,7 @@ public sealed class MoveTaskExecutorTests
         var executor = new MoveTaskExecutor(new FailingCopyEngine(resolver, repository, new TaskProgressService()));
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
@@ -198,7 +198,7 @@ public sealed class MoveTaskExecutorTests
             [new FileRef("source", "note.txt"), new FileRef("source", "album")],
             new FileRef("destination", "inbox"));
 
-        await executor.ExecuteAsync(task, CancellationToken.None);
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
         var running = await repository.GetAsync(task.Id);
 
         Assert.NotNull(running);
@@ -224,7 +224,7 @@ public sealed class MoveTaskExecutorTests
         var executor = new MoveTaskExecutor(new FailingDeleteEngine(resolver, repository, new TaskProgressService()));
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "note.txt")], new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
         var running = await repository.GetAsync(task.Id);
 
         Assert.Equal(FileTaskErrorCodes.MoveSourceNotDeleted, exception.SafeCode);
@@ -280,7 +280,7 @@ public sealed class MoveTaskExecutorTests
                 [new FileRef("source", "note.txt"), new FileRef("source", "album")],
                 new FileRef("destination", ""));
 
-            await executor.ExecuteAsync(task, CancellationToken.None);
+            await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
 
             Assert.False(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
             Assert.False(Directory.Exists(sourceDirectory));

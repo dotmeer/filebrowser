@@ -28,4 +28,7 @@ public static class FileTaskErrorCodes
     public const string MoveSourceNotDeleted = "move_source_not_deleted";
     public const string ExecutorFailed = "executor_failed";
     public const string TaskInterruptedRestart = "task_interrupted_restart";
+    public const string CancelledByUser = "cancelled_by_user";
+    public const string SkippedAfterCancel = "skipped_after_cancel";
+    public const string InsufficientSpace = "insufficient_space";
 }

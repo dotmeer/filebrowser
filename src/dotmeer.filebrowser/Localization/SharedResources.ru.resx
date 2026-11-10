@@ -125,7 +125,7 @@
   <data name="Старее" xml:space="preserve"><value>Старее</value></data>
   <data name="Записей нет" xml:space="preserve"><value>Записей нет</value></data>
   <data name="Очистить историю задач?" xml:space="preserve"><value>Очистить историю задач?</value></data>
-  <data name="Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются." xml:space="preserve"><value>Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются.</value></data>
+  <data name="Будут удалены все завершённые, неудачные, отменённые и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются." xml:space="preserve"><value>Будут удалены все завершённые, неудачные, отменённые и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются.</value></data>
   <data name="Я понимаю, что историю нельзя восстановить" xml:space="preserve"><value>Я понимаю, что историю нельзя восстановить</value></data>
   <data name="Очистить" xml:space="preserve"><value>Очистить</value></data>
   <data name="Не удалось прочитать состояние задач из SQLite." xml:space="preserve"><value>Не удалось прочитать состояние задач из SQLite.</value></data>
@@ -145,6 +145,12 @@
   <data name="Завершено" xml:space="preserve"><value>Завершено</value></data>
   <data name="Ошибка" xml:space="preserve"><value>Ошибка</value></data>
   <data name="Прервано" xml:space="preserve"><value>Прервано</value></data>
+  <data name="Отменяется…" xml:space="preserve"><value>Отменяется…</value></data>
+  <data name="Отменено" xml:space="preserve"><value>Отменено</value></data>
+  <data name="Задача отменена пользователем." xml:space="preserve"><value>Задача отменена пользователем.</value></data>
+  <data name="Не обработан: задача отменена." xml:space="preserve"><value>Не обработан: задача отменена.</value></data>
+  <data name="Не удалось отменить задачу. Повторите попытку." xml:space="preserve"><value>Не удалось отменить задачу. Повторите попытку.</value></data>
+  <data name="Недостаточно свободного места в каталоге назначения." xml:space="preserve"><value>Недостаточно свободного места в каталоге назначения.</value></data>
   <data name="Копирование" xml:space="preserve"><value>Копирование</value></data>
   <data name="Перемещение" xml:space="preserve"><value>Перемещение</value></data>
   <data name="Ожидает" xml:space="preserve"><value>Ожидает</value></data>

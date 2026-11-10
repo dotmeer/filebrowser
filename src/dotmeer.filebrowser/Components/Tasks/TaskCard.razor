@@ -8,7 +8,17 @@
             <strong>@Presentation.TypeLabel(Task.Type)</strong>
             <span class="task-status @TaskPresentation.StatusCssClass(Task.Status)">@Presentation.StatusLabel(Task.Status)</span>
         </div>
-        <time class="local-time" datetime="@Task.CreatedAtUtc.ToString("O", CultureInfo.InvariantCulture)">@Task.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC</time>
+        <div class="task-card-header-actions">
+            <time class="local-time" datetime="@Task.CreatedAtUtc.ToString("O", CultureInfo.InvariantCulture)">@Task.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) UTC</time>
+            @if (FileTaskStateTransitions.IsActive(Task.Status))
+            {
+                <button class="btn btn-outline-danger btn-sm" type="button"
+                        @onclick="() => OnCancel.InvokeAsync(Task.Id)"
+                        disabled="@(Task.Status == FileTaskStatus.Cancelling || CancelPending)">
+                    @L["Отмена"]
+                </button>
+            }
+        </div>
     </header>
 
     <p class="task-route">
@@ -94,6 +104,10 @@
     [Parameter, EditorRequired] public FileTask Task { get; set; } = null!;
 
     [Parameter] public double BytesPerSecond { get; set; }
+
+    [Parameter] public EventCallback<Guid> OnCancel { get; set; }
+
+    [Parameter] public bool CancelPending { get; set; }
 
     private int? Percent => TaskPresentation.GetPercent(Task);
 }

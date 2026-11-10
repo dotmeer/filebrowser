@@ -2,6 +2,7 @@
 @inject TaskRepository Repository
 @inject TaskNotificationService Notifications
 @inject TaskProgressService Progress
+@inject TaskCancellationService Cancellation
 @inject IJSRuntime JavaScript
 @inject IStringLocalizer<SharedResources> L
 
@@ -35,7 +36,8 @@
         <div class="task-list">
             @foreach (var task in _active)
             {
-                <TaskCard Task="@task" BytesPerSecond="@GetBytesPerSecond(task)" />
+                <TaskCard Task="@task" BytesPerSecond="@GetBytesPerSecond(task)"
+                          OnCancel="CancelTaskAsync" CancelPending="@_cancelPending.Contains(task.Id)" />
             }
         </div>
     }
@@ -75,7 +77,7 @@
             <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-history-title">
                 <h2 id="clear-history-title">@L["Очистить историю задач?"]</h2>
                 <p class="dialog-warning">
-                    @L["Будут удалены все завершённые, неудачные и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются."]
+                    @L["Будут удалены все завершённые, неудачные, отменённые и прерванные задачи вместе с результатом. Активные задачи и файлы не изменяются."]
                 </p>
                 <div class="form-check">
                     <input id="confirm-clear-history" class="form-check-input" type="checkbox"
@@ -128,6 +130,7 @@
     private bool _clearing;
     private string? _clearError;
     private int? _lastDeletedCount;
+    private readonly HashSet<Guid> _cancelPending = [];
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -287,6 +290,27 @@
     }
 
     private Task RefreshAsync() => LoadAsync();
+
+    private async Task CancelTaskAsync(Guid taskId)
+    {
+        if (!_cancelPending.Add(taskId))
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => Cancellation.CancelAsync(taskId));
+        }
+        catch (Exception)
+        {
+            _loadError = L["Не удалось отменить задачу. Повторите попытку."];
+        }
+        finally
+        {
+            _cancelPending.Remove(taskId);
+        }
+    }
 
     private Task GoToHistoryPageAsync(int offset)
     {

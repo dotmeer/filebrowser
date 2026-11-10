@@ -65,8 +65,10 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskStatus.Queued => localizer["В очереди"],
         FileTaskStatus.Scanning => localizer["Проверка и подсчёт"],
         FileTaskStatus.Running => localizer["Выполняется"],
+        FileTaskStatus.Cancelling => localizer["Отменяется…"],
         FileTaskStatus.Completed => localizer["Завершено"],
         FileTaskStatus.Failed => localizer["Ошибка"],
+        FileTaskStatus.Cancelled => localizer["Отменено"],
         FileTaskStatus.Interrupted => localizer["Прервано"],
         _ => status.ToString()
     };
@@ -75,6 +77,7 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
     {
         FileTaskStatus.Completed => "task-status-completed",
         FileTaskStatus.Failed => "task-status-failed",
+        FileTaskStatus.Cancelled => "task-status-cancelled",
         FileTaskStatus.Interrupted => "task-status-interrupted",
         _ => "task-status-active"
     };
@@ -126,6 +129,9 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskErrorCodes.MoveSourceNotDeleted => localizer["Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично."],
         FileTaskErrorCodes.ExecutorFailed => localizer["Исполнитель задачи завершился ошибкой."],
         FileTaskErrorCodes.TaskInterruptedRestart => localizer["Задача прервана перезапуском приложения."],
+        FileTaskErrorCodes.CancelledByUser => localizer["Задача отменена пользователем."],
+        FileTaskErrorCodes.SkippedAfterCancel => localizer["Не обработан: задача отменена."],
+        FileTaskErrorCodes.InsufficientSpace => localizer["Недостаточно свободного места в каталоге назначения."],
         _ => error
     };
 

@@ -759,6 +759,16 @@ h1:focus {
     color: var(--warning);
 }
 
+.task-status-cancelled {
+    color: var(--warning);
+}
+
+.task-card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .task-route {
     display: flex;
     flex-wrap: wrap;

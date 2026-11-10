@@ -162,6 +162,8 @@ public sealed class TaskManagementTests
             Assert.Equal("Copy failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Copy));
             Assert.Equal("Move failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Move));
             Assert.Equal("Name conflict: an object with the same name already exists.", presentation.ErrorText(FileTaskErrorCodes.NameConflict, FileTaskType.Move));
+            Assert.Equal("The task was cancelled by the user.", presentation.ErrorText(FileTaskErrorCodes.CancelledByUser, FileTaskType.Copy));
+            Assert.Equal("Not processed: the task was cancelled.", presentation.ErrorText(FileTaskErrorCodes.SkippedAfterCancel, FileTaskType.Move));
             Assert.Equal(string.Empty, presentation.ErrorText(null, FileTaskType.Copy));
             Assert.Equal("Произвольный старый текст.", presentation.ErrorText("Произвольный старый текст.", FileTaskType.Copy));
         }
@@ -266,7 +268,7 @@ public sealed class TaskManagementTests
 
     private sealed class NeverCompletingExecutor : IFileTaskExecutor
     {
-        public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken) =>
+        public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken) =>
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
@@ -278,7 +280,7 @@ public sealed class TaskManagementTests
 
         public IReadOnlyList<Guid> StartedIds => _startedIds.ToArray();
 
-        public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken)
+        public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken)
         {
             _startedIds.Enqueue(task.Id);
             _started.Release();

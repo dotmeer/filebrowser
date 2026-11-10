@@ -114,7 +114,15 @@ internal sealed class FileRefTupleComparer : IEqualityComparer<(string Root, str
 
 public interface IFileTaskExecutor
 {
-    Task ExecuteAsync(FileTask task, CancellationToken cancellationToken);
+    /// <param name="cancellationToken">
+    /// Linked token: fires on application shutdown or on a user-initiated cancel.
+    /// </param>
+    /// <param name="shutdownToken">
+    /// Application shutdown token without the user-cancel part. Lets executors
+    /// distinguish a user cancel (finalize as cancelled) from a shutdown
+    /// (leave the task active; startup marks it interrupted).
+    /// </param>
+    Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken);
 }
 
 public sealed class TaskExecutorNotReadyException : Exception
@@ -126,7 +134,7 @@ public sealed class TaskExecutorNotReadyException : Exception
 
 public sealed class NotReadyFileTaskExecutor : IFileTaskExecutor
 {
-    public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken) =>
+    public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken) =>
         Task.FromException(new TaskExecutorNotReadyException());
 }
 
@@ -136,6 +144,7 @@ public sealed class TaskExecutorHostedService(
     IFileTaskExecutor executor,
     TemporaryArtifactCleanupService artifactCleanup,
     TaskProgressService runtimeProgress,
+    TaskCancellationRegistry cancellationRegistry,
     FileBrowserConfiguration configuration,
     ILogger<TaskExecutorHostedService> logger,
     TaskMetrics? metrics = null) : BackgroundService
@@ -177,32 +186,76 @@ public sealed class TaskExecutorHostedService(
                 executionStartedUtc = DateTimeOffset.UtcNow;
                 activity = StartTaskActivity(task);
 
-                await repository.TransitionAsync(taskId, FileTaskStatus.Scanning, "scanning", cancellationToken: stoppingToken);
-                task = await repository.GetAsync(taskId, stoppingToken)
-                    ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
-                await executor.ExecuteAsync(task, stoppingToken);
-                var executedTask = await repository.GetAsync(taskId, stoppingToken)
-                    ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
-                if (executedTask.Status == FileTaskStatus.Scanning)
+                using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    stoppingToken,
+                    cancellationRegistry.Register(taskId).Token);
+                try
                 {
-                    await repository.TransitionAsync(taskId, FileTaskStatus.Running, "running", cancellationToken: stoppingToken);
-                    executedTask = await repository.GetAsync(taskId, stoppingToken)
+                    await repository.TransitionAsync(taskId, FileTaskStatus.Scanning, "scanning", cancellationToken: stoppingToken);
+                    task = await repository.GetAsync(taskId, stoppingToken)
                         ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
-                }
+                    await executor.ExecuteAsync(task, linkedCancellation.Token, stoppingToken);
+                    var executedTask = await repository.GetAsync(taskId, stoppingToken)
+                        ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
+                    if (executedTask.Status == FileTaskStatus.Scanning)
+                    {
+                        await repository.TransitionAsync(taskId, FileTaskStatus.Running, "running", cancellationToken: stoppingToken);
+                        executedTask = await repository.GetAsync(taskId, stoppingToken)
+                            ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
+                    }
 
-                if (executedTask.Status != FileTaskStatus.Running)
+                    if (executedTask.Status == FileTaskStatus.Cancelling)
+                    {
+                        // Отмена выиграла гонку: работа фактически завершена,
+                        // результат сохраняется, задача фиксируется как отменённая.
+                        await repository.TransitionAsync(taskId, FileTaskStatus.Cancelled, "cancelled", FileTaskErrorCodes.CancelledByUser, stoppingToken);
+                        activity?.SetTag("filebrowser.task.status", "cancelled");
+                        metrics?.TaskCancelled(executedTask.Type, DateTimeOffset.UtcNow - executionStartedUtc);
+                        runtimeProgress.Clear(taskId);
+                        continue;
+                    }
+
+                    if (executedTask.Status != FileTaskStatus.Running)
+                    {
+                        throw new InvalidOperationException("Исполнитель оставил задачу в недопустимом состоянии.");
+                    }
+
+                    await repository.TransitionAsync(taskId, FileTaskStatus.Completed, "completed", cancellationToken: stoppingToken);
+                    activity?.SetTag("filebrowser.task.status", "completed");
+                    metrics?.TaskCompleted(executedTask.Type, DateTimeOffset.UtcNow - executionStartedUtc);
+                    runtimeProgress.Clear(taskId);
+                }
+                finally
                 {
-                    throw new InvalidOperationException("Исполнитель оставил задачу в недопустимом состоянии.");
+                    cancellationRegistry.Unregister(taskId);
                 }
-
-                await repository.TransitionAsync(taskId, FileTaskStatus.Completed, "completed", cancellationToken: stoppingToken);
-                activity?.SetTag("filebrowser.task.status", "completed");
-                metrics?.TaskCompleted(executedTask.Type, DateTimeOffset.UtcNow - executionStartedUtc);
-                runtimeProgress.Clear(taskId);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
+            }
+            catch (InvalidFileTaskTransitionException) when (taskId != Guid.Empty)
+            {
+                // Возможная гонка отмены с запуском задачи; любые другие
+                // недопустимые переходы — это дефект и должны падать в generic-catch.
+                var current = await repository.GetAsync(taskId, CancellationToken.None);
+                if (current is null || current.Status is not (FileTaskStatus.Cancelling or FileTaskStatus.Cancelled))
+                {
+                    throw;
+                }
+
+                logger.LogDebug("Задача {TaskId} отменена конкурентно с запуском воркера", taskId);
+                await CancelTaskSafelyAsync(taskId, stoppingToken);
+                runtimeProgress.Clear(taskId);
+            }
+            catch (Exception exception) when (exception is OperationCanceledException or FileTaskCancelledException)
+            {
+                // Пользовательская отмена (остановка приложения отфильтрована выше).
+                activity?.SetTag("filebrowser.task.status", "cancelled");
+                metrics?.TaskCancelled(task?.Type, DateTimeOffset.UtcNow - executionStartedUtc);
+                logger.LogInformation("Задача {TaskId} отменена по запросу пользователя", taskId);
+                await CancelTaskSafelyAsync(taskId, stoppingToken);
+                runtimeProgress.Clear(taskId);
             }
             catch (Exception exception)
             {
@@ -218,6 +271,23 @@ public sealed class TaskExecutorHostedService(
             {
                 activity?.Dispose();
             }
+        }
+    }
+
+    private async Task CancelTaskSafelyAsync(Guid taskId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await repository.CancelPendingItemsAsync(taskId, FileTaskErrorCodes.CancelledByUser, cancellationToken);
+            var task = await repository.GetAsync(taskId, cancellationToken);
+            if (task is not null && FileTaskStateTransitions.IsAllowed(task.Status, FileTaskStatus.Cancelled))
+            {
+                await repository.TransitionAsync(taskId, FileTaskStatus.Cancelled, "cancelled", FileTaskErrorCodes.CancelledByUser, cancellationToken);
+            }
+        }
+        catch (Exception persistenceException) when (persistenceException is not OperationCanceledException)
+        {
+            logger.LogError(persistenceException, "Не удалось зафиксировать отмену задачи {TaskId}", taskId);
         }
     }
 

@@ -30,7 +30,7 @@ public sealed class CopyTaskExecutorTests
             [new FileRef("source", "note.txt"), new FileRef("source", "album")],
             new FileRef("destination", "inbox"));
 
-        await executor.ExecuteAsync(task, CancellationToken.None);
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
         var running = await repository.GetAsync(task.Id);
 
         Assert.NotNull(running);
@@ -66,7 +66,7 @@ public sealed class CopyTaskExecutorTests
         var (repository, executor) = CreateExecutor(workspace, destinationRoot);
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "deep")], new FileRef("destination", "inbox"));
 
-        await executor.ExecuteAsync(task, CancellationToken.None);
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
         var running = await repository.GetAsync(task.Id);
 
         var copiedFile = Path.Combine(destinationDirectory, "deep");
@@ -122,7 +122,7 @@ public sealed class CopyTaskExecutorTests
             [new FileRef("source", "first.txt"), new FileRef("source", "other/second.txt")],
             new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
         var scanned = await repository.GetAsync(task.Id);
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
@@ -158,7 +158,7 @@ public sealed class CopyTaskExecutorTests
         var (repository, executor) = CreateExecutor(workspace, destinationRoot);
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source-directory")], new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
@@ -177,7 +177,7 @@ public sealed class CopyTaskExecutorTests
         var (repository, executor) = CreateExecutor(workspace, destinationRoot);
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source-directory")], new FileRef("source", "source-directory/nested"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
@@ -198,7 +198,7 @@ public sealed class CopyTaskExecutorTests
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "locked.txt")], new FileRef("destination", "inbox"));
 
         using var lockStream = new FileStream(source, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.IoError, exception.SafeCode);
         Assert.False(File.Exists(Path.Combine(destinationDirectory, "locked.txt")));
@@ -283,7 +283,7 @@ public sealed class CopyTaskExecutorTests
         var (repository, executor) = CreateExecutor(workspace, destinationRoot);
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", ".filebrowser-source")], new FileRef("destination", "inbox"));
 
-        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
@@ -294,7 +294,7 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
-    public async Task Execute_CancellationDuringCopyLeavesRegisteredArtifactForStartupCleanup()
+    public async Task Execute_ShutdownDuringCopyLeavesRegisteredArtifactForStartupCleanup()
     {
         using var workspace = new TestWorkspace();
         var destinationRoot = CreateDestinationRoot(workspace);
@@ -314,13 +314,17 @@ public sealed class CopyTaskExecutorTests
         var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
         var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
         using var cancellation = new CancellationTokenSource();
-        var executor = new CopyTaskExecutor(new CancellingCopyEngine(resolver, repository, new TaskProgressService(), cancellation));
+        using var shutdown = new CancellationTokenSource();
+        var executor = new CopyTaskExecutor(new CancellingCopyEngine(resolver, repository, new TaskProgressService(), cancellation, shutdown));
         var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source.txt")], new FileRef("destination", "inbox"));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(task, cancellation.Token));
+        // Остановка приложения: исполнитель не финализирует отмену,
+        // артефакт ждёт очистки при следующем старте.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(task, cancellation.Token, shutdown.Token));
 
         var running = await repository.GetAsync(task.Id);
         Assert.Equal(FileTaskStatus.Running, running!.Status);
+        Assert.Equal("pending", Assert.Single(running.Items).Status);
         var artifact = Assert.Single(await repository.GetTemporaryArtifactsAsync());
         Assert.StartsWith(".filebrowser-", Path.GetFileName(artifact.File.Path), StringComparison.Ordinal);
         var artifactPath = Path.Combine(destinationDirectory, Path.GetFileName(artifact.File.Path));
@@ -334,6 +338,43 @@ public sealed class CopyTaskExecutorTests
         Assert.False(File.Exists(artifactPath));
         Assert.True(File.Exists(unregisteredPath));
         Assert.Equal(FileTaskStatus.Interrupted, (await repository.GetAsync(task.Id))!.Status);
+    }
+
+    [Fact]
+    public async Task Execute_UserCancelDuringCopyCleansArtifactAndFinalizesItems()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "a.txt"), "first");
+        File.WriteAllText(Path.Combine(workspace.RootPath, "b.txt"), "second");
+        var destinationDirectory = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(destinationDirectory);
+        var configPath = workspace.WriteRawConfiguration($"""
+            workers: 1
+            roots:
+              - name: source
+                path: '{workspace.RootPath}'
+              - name: destination
+                path: '{destinationRoot}'
+            """);
+        var repository = CreateRepository(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
+        var resolver = new PathResolver(FileBrowserConfigurationLoader.Load(configPath));
+        using var cancellation = new CancellationTokenSource();
+        var executor = new CopyTaskExecutor(new CancelOnSecondEntryEngine(resolver, repository, new TaskProgressService(), cancellation));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "a.txt"), new FileRef("source", "b.txt")], new FileRef("destination", "inbox"));
+
+        // Пользовательская отмена: исполнитель сам финализирует задачу и бросает FileTaskCancelledException.
+        await Assert.ThrowsAsync<FileTaskCancelledException>(() => executor.ExecuteAsync(task, cancellation.Token, CancellationToken.None));
+
+        var running = await repository.GetAsync(task.Id);
+        Assert.NotNull(running);
+        Assert.Equal(["completed", "not_processed"], running.Items.Select(item => item.Status));
+        Assert.Equal(FileTaskErrorCodes.CancelledByUser, running.Items[1].Error);
+        Assert.Equal("first", File.ReadAllText(Path.Combine(destinationDirectory, "a.txt")));
+        Assert.False(File.Exists(Path.Combine(destinationDirectory, "b.txt")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationDirectory, ".filebrowser-*"));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "b.txt")));
     }
 
     [Fact]
@@ -492,7 +533,7 @@ public sealed class CopyTaskExecutorTests
     {
         try
         {
-            await executor.ExecuteAsync(task, CancellationToken.None);
+            await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
             return new CopyOutcome(true, null);
         }
         catch (FileTaskExecutionException exception)
@@ -505,7 +546,8 @@ public sealed class CopyTaskExecutorTests
         PathResolver resolver,
         TaskRepository repository,
         TaskProgressService progress,
-        CancellationTokenSource cancellation) : FileTransferEngine(resolver, repository, progress)
+        CancellationTokenSource cancellation,
+        CancellationTokenSource shutdown) : FileTransferEngine(resolver, repository, progress)
     {
         internal override Task CopyEntryAsync(
             FileTransferPlanEntry entry,
@@ -514,8 +556,31 @@ public sealed class CopyTaskExecutorTests
             CancellationToken cancellationToken)
         {
             cancellation.Cancel();
+            shutdown.Cancel();
             cancellationToken.ThrowIfCancellationRequested();
             return base.CopyEntryAsync(entry, destinationPath, progress, cancellationToken);
+        }
+    }
+
+    private sealed class CancelOnSecondEntryEngine(
+        PathResolver resolver,
+        TaskRepository repository,
+        TaskProgressService progress,
+        CancellationTokenSource cancellation) : FileTransferEngine(resolver, repository, progress)
+    {
+        internal override async Task CopyEntryAsync(
+            FileTransferPlanEntry entry,
+            string destinationPath,
+            TransferProgress progress,
+            CancellationToken cancellationToken)
+        {
+            if (entry.Source.Path == "b.txt")
+            {
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            await base.CopyEntryAsync(entry, destinationPath, progress, cancellationToken);
         }
     }
 

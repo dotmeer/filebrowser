@@ -66,6 +66,9 @@ public sealed class TaskMetrics
     public void TaskFailed(FileTaskType? type, TimeSpan duration) =>
         TaskFinished(type, "failed", duration);
 
+    public void TaskCancelled(FileTaskType? type, TimeSpan duration) =>
+        TaskFinished(type, "cancelled", duration);
+
     public void TasksInterrupted(int count)
     {
         if (count > 0)

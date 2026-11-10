@@ -13,8 +13,10 @@ public enum FileTaskStatus
     Queued,
     Scanning,
     Running,
+    Cancelling,
     Completed,
     Failed,
+    Cancelled,
     Interrupted
 }
 
@@ -22,13 +24,14 @@ public static class FileTaskStateTransitions
 {
     public static bool IsAllowed(FileTaskStatus from, FileTaskStatus to) => (from, to) switch
     {
-        (FileTaskStatus.Queued, FileTaskStatus.Scanning or FileTaskStatus.Failed or FileTaskStatus.Interrupted) => true,
-        (FileTaskStatus.Scanning, FileTaskStatus.Running or FileTaskStatus.Failed or FileTaskStatus.Interrupted) => true,
-        (FileTaskStatus.Running, FileTaskStatus.Completed or FileTaskStatus.Failed or FileTaskStatus.Interrupted) => true,
+        (FileTaskStatus.Queued, FileTaskStatus.Scanning or FileTaskStatus.Failed or FileTaskStatus.Cancelled or FileTaskStatus.Interrupted) => true,
+        (FileTaskStatus.Scanning, FileTaskStatus.Running or FileTaskStatus.Failed or FileTaskStatus.Cancelling or FileTaskStatus.Interrupted) => true,
+        (FileTaskStatus.Running, FileTaskStatus.Completed or FileTaskStatus.Failed or FileTaskStatus.Cancelling or FileTaskStatus.Interrupted) => true,
+        (FileTaskStatus.Cancelling, FileTaskStatus.Cancelled or FileTaskStatus.Failed or FileTaskStatus.Interrupted) => true,
         _ => false
     };
 
-    public static bool IsActive(FileTaskStatus status) => status is FileTaskStatus.Queued or FileTaskStatus.Scanning or FileTaskStatus.Running;
+    public static bool IsActive(FileTaskStatus status) => status is FileTaskStatus.Queued or FileTaskStatus.Scanning or FileTaskStatus.Running or FileTaskStatus.Cancelling;
 }
 
 public sealed record FileTask(

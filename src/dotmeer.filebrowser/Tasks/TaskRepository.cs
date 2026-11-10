@@ -108,7 +108,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         command.CommandText = """
             SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
             FROM tasks
-            WHERE status IN ('queued', 'scanning', 'running')
+            WHERE status IN ('queued', 'scanning', 'running', 'cancelling')
             ORDER BY created_at_utc ASC, id ASC;
             """;
         var rows = new List<TaskRow>();
@@ -138,7 +138,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         command.CommandText = """
             SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
             FROM tasks
-            WHERE status IN ('completed', 'failed', 'interrupted')
+            WHERE status IN ('completed', 'failed', 'cancelled', 'interrupted')
             ORDER BY created_at_utc DESC, id DESC
             LIMIT $take OFFSET $offset;
             """;
@@ -185,7 +185,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
                 error = $error,
                 started_at_utc = CASE WHEN started_at_utc IS NULL AND $nextStatus IN ('scanning', 'running') THEN $updatedAtUtc ELSE started_at_utc END,
                 updated_at_utc = $updatedAtUtc,
-                completed_at_utc = CASE WHEN $nextStatus IN ('completed', 'failed', 'interrupted') THEN $updatedAtUtc ELSE NULL END
+                completed_at_utc = CASE WHEN $nextStatus IN ('completed', 'failed', 'cancelled', 'interrupted') THEN $updatedAtUtc ELSE NULL END
             WHERE id = $id AND status = $currentStatus;
             """;
         command.Parameters.AddWithValue("$nextStatus", ToDatabaseValue(nextStatus));
@@ -218,7 +218,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
                 error = 'task_interrupted_restart',
                 updated_at_utc = $updatedAtUtc,
                 completed_at_utc = $updatedAtUtc
-            WHERE status IN ('queued', 'scanning', 'running');
+            WHERE status IN ('queued', 'scanning', 'running', 'cancelling');
             """;
         command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(now));
         var changed = command.ExecuteNonQuery();
@@ -250,7 +250,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'interrupted');";
+        command.CommandText = "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled', 'interrupted');";
         var deleted = command.ExecuteNonQuery();
         transaction.Commit();
         if (deleted > 0)
@@ -258,6 +258,27 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             Notify(TaskChangeKind.HistoryCleared, null);
         }
         return Task.FromResult(deleted);
+    }
+
+    public Task CancelPendingItemsAsync(Guid taskId, string error, CancellationToken cancellationToken = default)
+    {
+        using var connection = database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE task_items
+            SET status = 'not_processed',
+                error = $error
+            WHERE task_id = $taskId AND status = 'pending';
+            """;
+        command.Parameters.AddWithValue("$error", error);
+        command.Parameters.AddWithValue("$taskId", taskId.ToString("D"));
+        var changed = command.ExecuteNonQuery();
+        if (changed > 0)
+        {
+            Notify(TaskChangeKind.Updated, taskId);
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task<TemporaryArtifact> RegisterTemporaryArtifactAsync(Guid taskId, FileRef file, CancellationToken cancellationToken = default)
@@ -331,8 +352,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
     }
 
     public Task UpdateTaskItemAsync(Guid taskId, FileRef source, string status, string? error, long itemsDone, long? itemsTotal, CancellationToken cancellationToken = default)
-    {
-        using var connection = database.OpenConnection();
+    {        using var connection = database.OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE task_items
