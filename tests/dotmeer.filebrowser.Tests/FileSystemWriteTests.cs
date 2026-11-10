@@ -1,7 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 
@@ -215,59 +211,16 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
-    public async Task Mkdir_WithAntiforgeryToken_ReturnsCreatedPublicReference()
+    public void CreateDirectory_ReturnsPublicReferenceToCreatedDirectory()
     {
         using var workspace = new TestWorkspace();
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
+        var writer = CreateWriter(workspace);
 
-        using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
-        {
-            parent = new { root = "files", path = "" },
-            name = "created"
-        }, token);
-        var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var created = writer.CreateDirectory(new FileRef("files", string.Empty), "created");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("files", document.RootElement.GetProperty("root").GetString());
-        Assert.Equal("created", document.RootElement.GetProperty("path").GetString());
+        Assert.Equal("files", created.Root);
+        Assert.Equal("created", created.Path);
         Assert.True(Directory.Exists(Path.Combine(workspace.RootPath, "created")));
-    }
-
-    [Fact]
-    public async Task Mkdir_ConflictReturns409NameConflict()
-    {
-        using var workspace = new TestWorkspace();
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "existing"));
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        using var response = await SendJsonAsync(host.Client, "/api/fs/mkdir", new
-        {
-            parent = new { root = "files", path = "" },
-            name = "existing"
-        }, token);
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("name_conflict", document.RootElement.GetProperty("code").GetString());
-    }
-
-    [Fact]
-    public async Task Mkdir_WithoutAntiforgeryDoesNotChangeFileSystem()
-    {
-        using var workspace = new TestWorkspace();
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
-
-        using var response = await host.Client.PostAsJsonAsync("/api/fs/mkdir", new
-        {
-            parent = new { root = "files", path = "" },
-            name = "must-not-exist"
-        });
-
-        Assert.True(response.StatusCode == HttpStatusCode.BadRequest,
-            $"Status: {response.StatusCode}; body: {await response.Content.ReadAsStringAsync()}");
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "must-not-exist")));
     }
 
     private static async Task<bool[]> RunConcurrentAttemptsAsync(int attempts, Func<int, bool> attempt)
@@ -292,23 +245,5 @@ public sealed class FileSystemWriteTests
     {
         var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteConfiguration(workspace.RootPath));
         return new FileSystemWriteService(new PathResolver(configuration));
-    }
-
-    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
-    {
-        var html = await client.GetStringAsync("/browse?root=files");
-        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
-        Assert.True(match.Success, "На странице не найден antiforgery token.");
-        return WebUtility.HtmlDecode(match.Groups["token"].Value);
-    }
-
-    private static async Task<HttpResponseMessage> SendJsonAsync(HttpClient client, string path, object payload, string token)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Post, path)
-        {
-            Content = JsonContent.Create(payload)
-        };
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        return await client.SendAsync(request);
     }
 }

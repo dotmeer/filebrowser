@@ -55,13 +55,11 @@ public static class FileBrowserObservabilityExtensions
 
         openTelemetry.WithTracing(tracing => tracing
             .AddSource(FileBrowserTelemetry.ActivitySource.Name)
-            .AddAspNetCoreInstrumentation(options => options.RecordException = true)
-            .AddHttpClientInstrumentation());
+            .AddAspNetCoreInstrumentation(options => options.RecordException = true));
 
         openTelemetry.WithMetrics(metrics => metrics
             .AddMeter(FileBrowserTelemetry.Meter.Name)
             .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation()
             .AddRuntimeInstrumentation());
 
         if (!IsOtlpConfigured(configuration))

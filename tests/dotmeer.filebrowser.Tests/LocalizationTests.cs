@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Settings;
 using dotmeer.filebrowser.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -92,12 +92,12 @@ public sealed class LocalizationTests
     }
 
     [Fact]
-    public async Task ApiError_UsesEnglishByDefault()
+    public async Task DownloadError_UsesEnglishByDefault()
     {
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var response = await host.Client.GetAsync("/api/fs/list?root=missing");
+        var response = await host.Client.GetAsync("/api/fs/download?root=files&path=missing.txt");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         var problem = await ReadProblemAsync(response);
@@ -106,60 +106,22 @@ public sealed class LocalizationTests
     }
 
     [Fact]
-    public async Task ChangeLanguageToRussian_RendersRussianSettingsAndApiErrors()
+    public async Task ChangeLanguageToRussian_RendersRussianSettingsAndDownloadErrors()
     {
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
-        var token = await GetAntiforgeryTokenAsync(host.Client);
+        await host.Services.GetRequiredService<AppSettingsService>().SetLanguageAsync("ru", CancellationToken.None);
 
-        var changeResponse = await host.Client.PostAsync("/settings/language", new FormUrlEncodedContent(
-            [new KeyValuePair<string, string>("language", "ru"), new KeyValuePair<string, string>("__RequestVerificationToken", token)]));
-
-        Assert.Equal(HttpStatusCode.OK, changeResponse.StatusCode);
-        var html = await changeResponse.Content.ReadAsStringAsync();
+        var html = await host.Client.GetStringAsync("/settings");
         var visibleText = WebUtility.HtmlDecode(html);
         Assert.Contains("Настройки", visibleText);
         Assert.Contains("Язык", visibleText);
         Assert.Contains("lang=\"ru\"", html);
-        Assert.Contains("<option value=\"ru\" selected", html);
 
-        var apiResponse = await host.Client.GetAsync("/api/fs/list?root=missing");
+        var apiResponse = await host.Client.GetAsync("/api/fs/download?root=files&path=missing.txt");
         Assert.Equal(HttpStatusCode.NotFound, apiResponse.StatusCode);
         var problem = await ReadProblemAsync(apiResponse);
         Assert.Equal("Объект не найден", problem.RootElement.GetProperty("title").GetString());
-    }
-
-    [Fact]
-    public async Task ChangeLanguage_WithoutAntiforgeryToken_Returns400()
-    {
-        using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace);
-
-        var response = await host.Client.PostAsync("/settings/language", new FormUrlEncodedContent(
-            [new KeyValuePair<string, string>("language", "ru")]));
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task ChangeLanguage_ToUnsupportedValue_Returns400()
-    {
-        using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace);
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        var response = await host.Client.PostAsync("/settings/language", new FormUrlEncodedContent(
-            [new KeyValuePair<string, string>("language", "de"), new KeyValuePair<string, string>("__RequestVerificationToken", token)]));
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
-    {
-        var html = await client.GetStringAsync("/settings");
-        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
-        Assert.True(match.Success, "На странице настроек не найден antiforgery token.");
-        return WebUtility.HtmlDecode(match.Groups["token"].Value);
     }
 
     private static async Task<JsonDocument> ReadProblemAsync(HttpResponseMessage response)

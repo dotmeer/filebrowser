@@ -59,6 +59,7 @@ catch (Exception exception)
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
+builder.Services.AddHealthChecks();
 builder.Services.AddLocalization(options => options.ResourcesPath = "Localization");
 builder.Services.AddSingleton(new AppSettingsService(taskDatabase));
 builder.Services.AddFileBrowserObservability(builder.Configuration);
@@ -95,10 +96,6 @@ if (!app.Environment.IsDevelopment())
 // UI language is a server-side setting (SQLite); the culture applies to every
 // request, including re-executed status-code pages.
 app.UseRequestLocalization(StoredLanguageProvider.CreateOptions());
-// Inside UseRequestLocalization so ProblemDetails are translated with the
-// request culture (the localization middleware restores the ambient culture
-// after the pipeline returns).
-app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
@@ -108,10 +105,14 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.MapHealthz();
-app.MapFileSystem();
-app.MapTasks();
-app.MapSettings();
+// Единственные HTTP-эндпоинты после удаления внешнего API: скачивание файла
+// для UI и health-checks для эксплуатации (k8s liveness/readiness).
+// Liveness: приложение отвечает. Readiness: пока совпадает с liveness;
+// при появлении критичной зависимости (например SQLite) сюда добавляется
+// соответствующая проверка.
+app.MapDownload();
+app.MapHealthChecks("/health/live");
+app.MapHealthChecks("/health/ready");
 
 app.Run();
 

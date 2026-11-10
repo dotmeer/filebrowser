@@ -337,39 +337,6 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
-    public async Task CopyEndpoint_RejectsSourcesFromDifferentParentsWithBadRequest()
-    {
-        using var workspace = new TestWorkspace();
-        File.WriteAllText(Path.Combine(workspace.RootPath, "first.txt"), "first");
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "other"));
-        File.WriteAllText(Path.Combine(workspace.RootPath, "other", "second.txt"), "second");
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/copy")
-        {
-            Content = JsonContent.Create(new
-            {
-                sources = new[]
-                {
-                    new { root = "files", path = "first.txt" },
-                    new { root = "files", path = "other/second.txt" }
-                },
-                destination = new { root = "files", path = "target" }
-            })
-        };
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        using var response = await host.Client.SendAsync(request);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("invalid_request", body.RootElement.GetProperty("code").GetString());
-        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "target", "first.txt")));
-        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "target", "second.txt")));
-    }
-
-    [Fact]
     public async Task TemporaryCleanup_RemovesOnlyRegisteredArtifact()
     {
         using var workspace = new TestWorkspace();
@@ -446,35 +413,6 @@ public sealed class CopyTaskExecutorTests
         Assert.Contains(outcomes, outcome => !outcome.Success && outcome.Error!.Contains("name_conflict", StringComparison.Ordinal));
         Assert.Equal("source content", File.ReadAllText(Path.Combine(destinationRoot, "inbox", "source.txt")));
         Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(destinationRoot, "inbox"), ".filebrowser-*"));
-    }
-
-    [Fact]
-    public async Task CopyEndpoint_QueuesAndCompletesCopyWithAntiforgery()
-    {
-        using var workspace = new TestWorkspace();
-        File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "copied by worker");
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/copy")
-        {
-            Content = JsonContent.Create(new
-            {
-                sources = new[] { new { root = "files", path = "source.txt" } },
-                destination = new { root = "files", path = "target" }
-            })
-        };
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        using var response = await host.Client.SendAsync(request);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var taskId = body.RootElement.GetProperty("id").GetGuid();
-        var completed = await WaitForStatusAsync(host.Services.GetRequiredService<TaskRepository>(), taskId, FileTaskStatus.Completed);
-
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal($"/api/tasks/{taskId:D}", response.Headers.Location?.ToString());
-        Assert.Equal("copied by worker", File.ReadAllText(Path.Combine(workspace.RootPath, "target", "source.txt")));
-        Assert.Equal("completed", Assert.Single(completed.Items).Status);
     }
 
     private static (TaskRepository Repository, CopyTaskExecutor Executor) CreateExecutor(TestWorkspace workspace, string destinationRoot)
@@ -561,14 +499,6 @@ public sealed class CopyTaskExecutorTests
         {
             return new CopyOutcome(false, exception.SafeCode);
         }
-    }
-
-    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
-    {
-        var html = await client.GetStringAsync("/browse?root=files");
-        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
-        Assert.True(match.Success, "На странице не найден antiforgery token.");
-        return WebUtility.HtmlDecode(match.Groups["token"].Value);
     }
 
     private sealed class CancellingCopyEngine(

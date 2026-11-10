@@ -2,20 +2,25 @@
 
 ## Вы находитесь здесь
 
-- Текущая итерация: I23 + фиксы отображения (2026-11-09): дерево имеет
-  единственный узел верхнего уровня — «Все корни» (корни — только его
-  дети); подзаголовок результатов поиска всегда показывает родительский
-  путь от корня с префиксом `/` и именем корня — совпадения из разных
-  корней различимы (SPEC §9.7, решение пользователя).
-- Статус: завершена (проверки Windows в Release и контейнерный
-  browser-smoke пройдены; Linux-прогон suite не выполнялся — рекомендован
-  перед commit).
-- Последняя завершённая итерация: I23 (включая I22-3, I23-1, I23-2).
-- Следующая разрешённая работа: пользователь создаёт commit (I22, I22-3,
-  I23-1, I23-2) с учётом Linux-прогона; далее — итерации из
-  `docs/ROADMAP.md` по решению пользователя.
+- Текущая итерация: I24 (2026-11-10): «Удаление внешнего HTTP API» —
+  публичный изменяющий и читающий Minimal API (`/api/fs/roots|list|search|
+  mkdir|rename|delete`, `/api/tasks/*`, `POST /settings/language`, `/healthz`)
+  удалён целиком; наружу остаются `GET /api/fs/download` (для кнопки
+  «Скачать» в UI) и стандартные health-checks `GET /health/live` и
+  `GET /health/ready`; смена языка переведена с POST-form на обработчик
+  Blazor; `OpenTelemetry.Instrumentation.Http` удалён.
+- Статус: завершена (проверки Windows и контейнерный smoke пройдены;
+  browser-smoke смены языка и Linux-прогон suite не выполнялись —
+  рекомендованы перед commit).
+- Последняя завершённая итерация: I24.
+- Следующая разрешённая работа: пользователь создаёт commit; далее —
+  итерации из `docs/ROADMAP.md` по решению пользователя.
 - Блокеры: не выявлены.
-- Последнее обновление: 2026-11-09 — I23 принят: browser-smoke виртуального
+- Последнее обновление: 2026-11-10 — I24 принята: 205/205 тестов
+  на Windows; п. «Подтверждённые возможности» приведён к фактическому
+  состоянию; ROADMAP очищен от пункта «Внешний real-time API»;
+  решения D072–D076.
+- Предыдущее обновление: 2026-11-09 — I23 принят: browser-smoke виртуального
   корня (узел «Все корни» EN/RU, листинг корней как папок, недоступный
   корень «Not supported», блокировка мутаций, search `root=AllRoots` с
   префиксами и `unavailableRoots`, download → 200, mkdir+CSRF → 400,
@@ -96,6 +101,74 @@ resolver/validator для всех запретов (папка/корень →
 | I22-3 | Поиск: родительский путь в результатах (UI-only) | Завершена |
 | I23-1 | Виртуальный корень AllRoots: серверная часть | Завершена |
 | I23-2 | Виртуальный корень AllRoots: UI (Blazor) | Завершена |
+| I24 | Удаление внешнего HTTP API | Завершена |
+
+## Итерация I24 — Удаление внешнего HTTP API
+
+### Цель
+
+Убрать публичный HTTP API целиком (решение пользователя): приложение
+работает в изолированной доверенной сети для нечастой ручной работы,
+внешних клиентов (скрипты, CLI, интеграции) не предполагается. Наружу
+остаются только: `GET /api/fs/download` (кнопка «Скачать» в UI ведёт
+на него навигацией браузера) и health-checks для эксплуатации.
+
+### Сделано
+
+- Удалены эндпоинты: `FileSystemEndpoints` (roots/list/search/mkdir/
+  rename/delete), `TaskEndpoints` (все `/api/tasks/*`), `SettingsEndpoints`
+  (`POST /settings/language`), `HealthEndpoints` (`/healthz`),
+  `ApiExceptionMiddleware` и все CSRF-фильтры (`RequireCsrfValidation`,
+  `AntiforgeryRequestRejectedException`, DTO `MkdirRequest` и др.).
+- Создан `Endpoints/DownloadEndpoint.cs` — единственный сохранённый
+  эндпоинт: `GET /api/fs/download` (виртуальный корень, поток, Range,
+  Content-Disposition). Ошибки маппятся локально в delegate в тот же
+  ProblemDetails-контракт (`code`, `traceId`, локализованные title/detail,
+  без физических путей) с использованием ключей `Error_*`; middleware
+  больше не нужен.
+- Health: стандартный `AddHealthChecks()` + `MapHealthChecks("/health/live")`
+  и `("/health/ready")` (liveness/readiness для k8s; зарегистрированных
+  проверок нет — 200, как только приложение отвечает).
+- `Settings.razor`: смена языка — обработчик Blazor
+  (`AppSettingsService.SetLanguageAsync` + полная перезагрузка страницы
+  для применения культуры middleware локализации).
+- Antiforgery DI/middleware и скрытая форма в `App.razor` сохранены —
+  они часть инфраструктуры Blazor Web App.
+- OTEL: `AddHttpClientInstrumentation` и пакет
+  `OpenTelemetry.Instrumentation.Http` удалены; AspNetCore-инструментация
+  сохранена (покрывает Blazor и скачивание).
+- resx: удалены ключи `Error_NameConflict_*`, `Error_Antiforgery_*`,
+  `Error_TaskNotFound_*`, `Error_TaskQueueFull_*` (использовались только
+  удалённым middleware).
+- Тесты: удалены HTTP-специфичные (~60): `SearchEndpointTests`,
+  `VirtualRootEndpointTests`, HTTP-части read/write/task-тестов,
+  antiforgery-хелперы; `DownloadTests` → `DownloadEndpointTests`
+  (перенесён тест скачивания через виртуальный корень, добавлен
+  Production-контракт); `HealthzTests` → `HealthCheckTests`;
+  покрытие чтения перенесено на unit-вызовы сервисов
+  (`FileSystemReadServiceTests`), добавлен `CreateDirectory_ReturnsPublicReference`.
+- Документация: SPEC §4, §5.3, §8.4, §9.6, §15, §16, §17, §19, §22;
+  README (раздел «HTTP API» → «HTTP-интерфейс»); OPERATIONS.md
+  (health + k8s-probes, OTEL); MANUAL_TEST_SCENARIOS; ROADMAP
+  (пункт «Внешний real-time API» удалён).
+
+### Проверки
+
+- `dotnet build` — 0 ошибок, 0 предупреждений.
+- `dotnet test` — 205/205 на Windows.
+- Контейнерный smoke и Linux-прогон — не выполнялись.
+
+### Осталось / не проверено
+
+- Browser-smoke: смена языка через новый Blazor-обработчик и кнопка
+  «Скачать» в реальном браузере (контейнерный HTTP-smoke health и 404
+  пройден).
+- Linux-прогон suite.
+
+### Следующее конкретное действие
+
+Пользователь: commit; при желании — контейнерный smoke по
+MANUAL_TEST_SCENARIOS и Linux-прогон перед commit.
 
 ## Итерация I23-2 — Виртуальный корень: UI
 
@@ -881,10 +954,10 @@ delete и cleanup временных объектов, не вводя поль�
 - строгая YAML-конфигурация при старте; недоступный корень не останавливает запуск;
 - единый resolver/validator путей: границы корней по сегментам, symlink,
   `.filebrowser-*`, безопасные имена;
-- чтение корней и каталогов через HTTP API и Blazor UI без раскрытия
+- чтение корней и каталогов через Blazor UI без раскрытия
   физических путей;
-- mkdir, rename, delete одного объекта: antiforgery, запрет перезаписи,
-  `409/name_conflict`;
+- mkdir, rename, delete одного объекта: запрет перезаписи,
+  `409/name_conflict` (ошибка домена; HTTP-контракта больше нет, I24);
 - SQLite: миграции, FIFO-очередь с workers, пагинация истории,
   очистка только неактивных задач;
 - фоновые copy/move: предварительная проверка со сбором ошибок, временные
@@ -894,7 +967,7 @@ delete и cleanup временных объектов, не вводя поль�
   серверные уведомления;
 - скачивание одного файла: потоковое, Range, `application/octet-stream`,
   корректный Content-Disposition;
-- ошибки API: ProblemDetails с `code` и `traceId`;
+- ошибки эндпоинта скачивания: ProblemDetails с `code` и `traceId`;
 - Docker: multi-stage образ, непривилегированный UID 1654, compose config,
   контейнерный smoke-тест;
 - наблюдаемость: JSON-логи, traceId, OpenTelemetry traces/metrics,
@@ -914,7 +987,7 @@ delete и cleanup временных объектов, не вводя поль�
   системы; интеграционный тест подтвердил видимость `config.yaml` и `app.db`
   в API-листинге при совпадении корня с `ConfigPath`; контейнерный smoke-тест
   с корнем `/` подтвердил `/healthz` → 200, `available=true` для корня
-  и создание `app.db` в `/config`.
+  и создание `app.db` в `/config` (после I24 health — `/health/live`/`/health/ready`).
 - блокировки назначений (I16): `mkdir` и `rename` используют фиксированный
   пул из 256 lock-объектов; память не растёт с числом уникальных путей,
   периодическая очистка не нужна, конкурентные тесты подтверждают ровно
@@ -924,11 +997,13 @@ delete и cleanup временных объектов, не вводя поль�
   `FileSystemTreeWalker` с явным стеком; пользовательский лимит глубины не
   вводился.
 - мультиязычность (I18): английский по умолчанию и русский; язык хранится
-  в SQLite (`app_settings`, миграция 2), выбирается формой на `/settings`
-  (`POST /settings/language`, antiforgery, redirect); культура запроса
+  в SQLite (`app_settings`, миграция 2); смена — обработчиком Blazor
+  на `/settings` с полной перезагрузкой страницы (I24; до I24 —
+  `POST /settings/language` с antiforgery); культура запроса
   определяется серверной настройкой, `title`/`detail` ProblemDetails
-  локализуются; страница настроек полностью переведена; ru-сателлит ресурсов
-  опубликован в Docker-образе (проверено контейнерным smoke).
+  скачивания локализуются; страница настроек полностью переведена;
+  ru-сателлит ресурсов опубликован в Docker-образе (проверено
+  контейнерным smoke).
 - перевод UI (I19): все Blazor-компоненты используют
   `IStringLocalizer<SharedResources>`; `TaskPresentation` — инстанс-сервис
   с переводом статусов и единиц; ключи ресурсов I19 — исходные русские
@@ -943,17 +1018,20 @@ delete и cleanup временных объектов, не вводя поль�
   корни — только его дети, дублирование убрано), блокировка изменяющих
   кнопок, уведомление о недоступных корнях поиска; подтверждено
   browser-smoke в контейнере и 239/239 тестов в Debug и Release.
-- поиск (I22): `GET /api/fs/search` (подстрока без учёта регистра, glob-фильтр
-  `ext`, лимит 500, бюджет 60 с, `truncated` как штатный режим; symlink,
-  unsupported и `.filebrowser-*` пропускаются) и UI-режим в `/browse`
-  (строка поиска, таблица результатов без операций, переход к объекту
-  с подсветкой через `highlight`, EN/RU); подтверждено browser-smoke
-  в контейнере и 205/205 тестов на Windows.
+- поиск (I22): сервис `FileSystemSearchService` (подстрока без учёта
+  регистра, glob-фильтр `ext`, лимит 500, бюджет 60 с, `truncated` как
+  штатный режим; symlink, unsupported и `.filebrowser-*` пропускаются)
+  и UI-режим в `/browse` (строка поиска, таблица результатов без
+  операций, переход к объекту с подсветкой через `highlight`, EN/RU);
+  подтверждено browser-smoke в контейнере и 205/205 тестов на Windows.
+  Публичный search-endpoint удалён в I24 — поиск доступен только через UI.
 - виртуальный корень (I23-1): `AllRoots` доступен для list/search/download
   поверх всех настроенных корней (корни как каталоги на верхнем уровне,
   недоступные — `unsupported` и в `unavailableRoots` поиска); мутации
-  отклоняются `400/invalid_request` в resolver; `/api/fs/roots` виртуальный
-  корень не включает; UI — не реализован (I23-2).
+  отклоняются в `PathResolver.GetRoot`; UI — единый узел «Все корни»
+  (I23-2). Публичные list/search-endpoint удалены в I24 — чтение
+  доступно только через UI; скачивание через `AllRoots` сохранено
+  в `GET /api/fs/download`.
 - коды ошибок задач (I20): `tasks.error`/`task_items.error` хранят
   стабильные коды (`FileTaskErrorCodes`, 21 код), исполнители не производят
   пользовательские тексты; `TaskPresentation.ErrorText` переводит коды
@@ -1061,6 +1139,12 @@ delete и cleanup временных объектов, не вводя поль�
 | Подзаголовок результатов: путь от корня всегда | Пройдено | 2026-11-09; `dotnet test` Debug 239/239 (3 теста обновлены, 1 добавлен в VirtualRootUiTests); browser-smoke: поиск `demo` из AllRoots → подзаголовки `files` и `files/documents`, tooltip `files/demo.txt`/`files/documents/demo.txt`, ошибок консоли нет; контейнер пересобран и оставлен запущенным |
 | Подзаголовок результатов: префикс `/` | Пройдено | 2026-11-09; `dotnet test` Debug 239/239 (4 ассерта обновлены); browser-smoke: подзаголовки `/files` и `/files/documents`, ошибок консоли нет; контейнер пересобран и оставлен запущенным |
 | Контейнерный smoke: виртуальный корень через browse (I23) | Пройдено | 2026-11-09; узел «All roots» над корнями; `root=AllRoots` — корни как папки, кнопки мутаций disabled, Refresh активен; навигация `AllRoots/files`, search — подзаголовки `files`, `files/documents`; переход к файлу с `highlight`; RU: «Все корни»; недоступный корень — «Not supported» и «Some roots are unavailable and were not searched: offline» (временный корень `offline`, конфиг возвращён); download → 200 `application/octet-stream`; mkdir+CSRF → 400 `invalid_request`; copy с `AllRoots` → задача failed «Preflight check failed.»; язык возвращён на EN, ошибок консоли нет |
+| dotnet build (I24) | Пройдено | 2026-11-10; 0 ошибок, 0 предупреждений; перед сборкой остановлен запущенный локальный инстанс приложения |
+| dotnet test (I24, Windows) | Пройдено | 2026-11-10; 205/205 (239 прежних минус ~60 HTTP-специфичных плюс новые unit/health/download); несколько итераций исправлений: ILogger-инъекция в endpoint, health content-type `text/plain` |
+| docker build (I24) | Пройдено | 2026-11-10; образ `filemanager-i24` собран успешно |
+| docker compose config (I24) | Пройдено | 2026-11-10; конфигурация валидна |
+| Контейнерный smoke (I24) | Частично | 2026-11-10; `/health/live`+`/health/ready` → 200 `Healthy`, `/api/fs/roots` и `/api/tasks` → 404, POST `/api/fs/mkdir` без токена → 400 (antiforgery middleware), `/browse` и `/settings` → 200; смена языка и кнопка «Скачать» в браузере не проверялись |
+| dotnet test (I24, Linux SDK-контейнер) | Не запускался | symlink-сценарии и health рекомендованы к проверке перед commit |
 
 Результаты: пройдено / не пройдено / не запускалось.
 
@@ -1234,6 +1318,11 @@ generic exception handler раньше `ApiExceptionMiddleware` и возвра�
 | D069 | Поиск выполняется синхронно в HTTP-запросе через `FileSystemTreeWalker.EnumerateSkippingUnsupported`: symlink/unsupported/исчезнувшие узлы пропускаются без ошибки, спуск в `.filebrowser-*` запрещён предикатом walker-а; лимит (500) и бюджет (60 с) дают `truncated: true` с частичным результатом, а не ошибку | SPEC §10.6: чтение, частичный список совпадений полезен (осознанное расхождение с двухфазной моделью §10.5); существующий `EnumerateValidated` бросает исключения и не подходит для поиска |
 | D070 | UI-режим поиска — режим `Browse.razor`, адресуемый query-параметром `q` (плюс `highlight` для подсветки файла); Blazor вызывает `FileSystemSearchService` напрямую с `CancellationToken.None`, без `Task.Run` и без собственного HTTP API; промежуточный рендер «Поиск…» — только в интерактивном режиме (`RendererInfo.IsInteractive`) | SPEC §15 (серверный Blazor вызывает прикладные сервисы напрямую); `q`/`highlight` в URL делает режим серверно-рендеримым, прямоссылочным и тестируемым WebApplicationFactory; синхронный обход до бюджета 60 с приемлем по SPEC §10.6, StateHasChanged при статическом пререндере не нужен |
 | D071 | Виртуальный корень `AllRoots` реализован делегированием поверх существующих сервисов без изменения единого resolver/validator реальных корней: мутации отклоняются только в `PathResolver.GetRoot` (точное совпадение имени, ordinal), чтение remap-ит первый сегмент в реальный корень; `FileEntryDto.ModifiedAtUtc` сделан nullable (`DateTimeOffset?`) | SPEC §7.1: имя намеренно вне алфавита конфигурации, поэтому один точечный запрет в resolver автоматически покрывает mkdir/rename/delete и copy/move (source/destination идут через `ResolveExisting`); nullable `ModifiedAtUtc` нужен, т.к. недоступный корень верхнего уровня не имеет времени изменения, а `null` честнее фиктивной даты; существующие потребители (листинги реальных корней) всегда получают значение |
+| D072 | Внешний HTTP API удалён целиком (I24). Наружу остаются `GET /api/fs/download` и health-checks `/health/live` + `/health/ready`; изменяющих эндпоинтов нет. Заменяет D008, D030, D032 (частично), D037, D045 (частично) | Продукт — ручная работа в изолированной доверенной сети без внешних клиентов; публичный API и real-time API не нужны (пункт ROADMAP «Внешний real-time API» удалён); CSRF-защита изменяющих запросов теряет предмет, т.к. таких запросов больше нет; модель безопасности не ослаблена: доступ по-прежнему определяется сетевым доступом к приложению, download read-only и не добавляет поверхности |
+| D073 | Ошибки `GET /api/fs/download` маппятся локально в delegate эндпоинта (копия маппинга бывшего `ApiExceptionMiddleware`) в тот же ProblemDetails-контракт с ключами `Error_*`; middleware удалён. Заменяет D037 и D063 (частично) | Middleware ради одного эндпоинта — лишний пайплайн и ложное ощущение «слоёв API»; контракт (application/problem+json, `code`, `traceId`, локализация, отсутствие физических путей) сохранён и покрыт `DownloadEndpointTests`, включая Production-окружение |
+| D074 | Health-checks — стандартный `Microsoft.Extensions.Diagnostics.HealthChecks` (`AddHealthChecks` + `MapHealthChecks("/health/live")` и `("/health/ready")`), без зарегистрированных проверок; самодельный `/healthz` удалён. Заменяет D030 | Стандартный механизм даёт готовые liveness/readiness-маршруты для k8s-проб без собственного кода; при появлении критичной зависимости (SQLite) проверка добавляется в readiness без смены маршрутов |
+| D075 | Смена языка — обработчик Blazor на `/settings` (`AppSettingsService.SetLanguageAsync` + `NavigateTo(forceLoad: true)`), POST-form endpoint удалён. Заменяет D062 (частично) | Серверный Blazor не вызывает собственное HTTP API (SPEC §15); полная перезагрузка страницы по-прежнему необходима и достаточна для применения культуры ко всей странице и будущим circuit |
+| D076 | `OpenTelemetry.Instrumentation.Http` удалён (пакет и регистрация); AspNetCore-инструментация сохранена | Приложение не выполняет исходящих HTTP-вызовов — instrumentation нечего инструментировать; AspNetCore покрывает весь оставшийся трафик (Blazor-страницы и скачивание) |
 
 При изменении решения:
 - не удалять историю;

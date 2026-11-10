@@ -26,8 +26,17 @@ Docker-образа, наблюдаемость, резервное копиро
   владельца volume UID/GID процесса;
 - `./data` монтируется в `/data` и соответствует примеру конфигурации;
 - health check изнутри образа не настроен: в `aspnet`-образе нет
-  `curl`. Проверяйте `GET /healthz` с хоста — рабочее приложение
-  отвечает `200` с телом `{"status":"ok"}`;
+  `curl`. Проверяйте с хоста: `GET /health/live` (liveness) и
+  `GET /health/ready` (readiness) — рабочее приложение отвечает `200`
+  с телом `Healthy`; при развёртывании под оркестратором используйте
+  эти маршруты в livenessProbe/readinessProbe, например:
+
+  ```yaml
+  livenessProbe:
+    httpGet: { path: /health/live, port: 8080 }
+  readinessProbe:
+    httpGet: { path: /health/ready, port: 8080 }
+  ```
 - ключи Data Protection .NET пишутся в домашний каталог контейнера:
   они не переживают пересоздание контейнера и не зашифрованы. В MVP
   нет авторизации и сохраняемого состояния сеанса; после пересоздания
@@ -52,19 +61,21 @@ Docker-образа, наблюдаемость, резервное копиро
 
 - JSON в stdout, UTC-время, scopes; содержимое файлов не логируется,
   физические пути наружу не раскрываются;
-- `ProblemDetails` ошибок API содержит `traceId`, совпадающий
-  со scope лога.
+- `ProblemDetails` ошибок эндпоинта скачивания содержит `traceId`,
+  совпадающий со scope лога.
 
 Трассировка и метрики:
 
-- OpenTelemetry: ASP.NET Core и HttpClient instrumentation;
+- OpenTelemetry: ASP.NET Core instrumentation (весь HTTP-пайплайн,
+  включая Blazor и скачивание); HttpClient instrumentation удалён —
+  приложение не выполняет исходящих HTTP-вызовов;
 - span `filebrowser.task.execute` для каждой фоновой задачи
   (теги: id задачи, тип, состояние, число источников, корень назначения;
   физические пути не добавляются);
 - meter `dotmeer.filebrowser`: `tasks.enqueued`, `tasks.rejected`,
   `tasks.started`, `tasks.finished`, `tasks.queue_depth`,
   `tasks.duration`, `tasks.bytes_processed`, `tasks.items_processed`;
-- включены базовые ASP.NET Core, HttpClient и runtime-метрики.
+- включены базовые ASP.NET Core и runtime-метрики.
 
 OTLP-экспорт (опционально):
 

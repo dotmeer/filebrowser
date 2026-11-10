@@ -84,40 +84,6 @@ public sealed class TaskManagementTests
     }
 
     [Fact]
-    public async Task HistoryEndpoint_RequiresAntiforgeryAndKeepsActiveTasks()
-    {
-        using var workspace = new TestWorkspace();
-        var executor = new NeverCompletingExecutor();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1), executor);
-        var dispatcher = host.Services.GetRequiredService<TaskDispatcher>();
-        var repository = host.Services.GetRequiredService<TaskRepository>();
-        var notifications = host.Services.GetRequiredService<TaskNotificationService>();
-        var received = new List<TaskChangeNotification>();
-        using var subscription = notifications.Subscribe(received.Add);
-        var active = await dispatcher.EnqueueAsync(FileTaskType.Copy, [new FileRef("files", "active.txt")], new FileRef("files", "target"));
-        await WaitForStatusAsync(repository, active.Id, FileTaskStatus.Scanning);
-        Assert.Contains(received, change => change.Kind == TaskChangeKind.Created && change.TaskId == active.Id);
-        Assert.Contains(received, change => change.Kind == TaskChangeKind.Updated && change.TaskId == active.Id);
-        await CreateTerminalTaskAsync(repository, FileTaskStatus.Completed, "completed.txt");
-        await CreateTerminalTaskAsync(repository, FileTaskStatus.Failed, "failed.txt");
-
-        using var rejected = await host.Client.DeleteAsync("/api/tasks/history");
-        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
-        Assert.NotNull(await repository.GetAsync(active.Id));
-
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-        using var request = new HttpRequestMessage(HttpMethod.Delete, "/api/tasks/history");
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        using var response = await host.Client.SendAsync(request);
-        using var body = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(2, body.RootElement.GetProperty("deletedCount").GetInt32());
-        Assert.NotNull(await repository.GetAsync(active.Id));
-        Assert.Single(await repository.GetActiveAsync());
-    }
-
-    [Fact]
     public async Task TwoWorkers_RunTwoTasksConcurrentlyAndDeferThirdInFifoOrder()
     {
         using var workspace = new TestWorkspace();

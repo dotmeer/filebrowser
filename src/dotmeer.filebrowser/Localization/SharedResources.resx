@@ -22,16 +22,8 @@
   <data name="Error_RootUnavailable_Detail" xml:space="preserve"><value>The file root is temporarily unavailable.</value></data>
   <data name="Error_NotFound_Title" xml:space="preserve"><value>Object not found</value></data>
   <data name="Error_NotFound_Detail" xml:space="preserve"><value>The requested root or object was not found.</value></data>
-  <data name="Error_NameConflict_Title" xml:space="preserve"><value>Name conflict</value></data>
-  <data name="Error_NameConflict_Detail" xml:space="preserve"><value>An object with the same name already exists.</value></data>
   <data name="Error_AccessDenied_Title" xml:space="preserve"><value>Access denied</value></data>
   <data name="Error_AccessDenied_Detail" xml:space="preserve"><value>Insufficient permissions to perform the operation.</value></data>
-  <data name="Error_Antiforgery_Title" xml:space="preserve"><value>Request rejected</value></data>
-  <data name="Error_Antiforgery_Detail" xml:space="preserve"><value>The request verification token could not be validated.</value></data>
-  <data name="Error_TaskNotFound_Title" xml:space="preserve"><value>Task not found</value></data>
-  <data name="Error_TaskNotFound_Detail" xml:space="preserve"><value>The requested task was not found.</value></data>
-  <data name="Error_TaskQueueFull_Title" xml:space="preserve"><value>Task queue is full</value></data>
-  <data name="Error_TaskQueueFull_Detail" xml:space="preserve"><value>The task queue is full. Try again later.</value></data>
   <data name="Error_InvalidRequest_Title" xml:space="preserve"><value>Invalid request</value></data>
   <data name="Error_InvalidRequest_Detail" xml:space="preserve"><value>Check the request parameters.</value></data>
   <data name="Error_InvalidPath_Detail" xml:space="preserve"><value>Check the root and the relative path.</value></data>

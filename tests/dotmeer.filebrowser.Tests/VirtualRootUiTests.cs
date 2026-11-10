@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using dotmeer.filebrowser.Settings;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -28,7 +30,7 @@ public sealed class VirtualRootUiTests
     {
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
-        await SetLanguageAsync(host.Client, "ru");
+        await SetLanguageAsync(host, "ru");
 
         var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse"));
 
@@ -147,17 +149,6 @@ public sealed class VirtualRootUiTests
             $"roots:\n  - name: alpha\n    path: '{workspace.RootPath}'\n  - name: beta\n    path: '{secondRootPath}'\n"));
     }
 
-    private static async Task SetLanguageAsync(HttpClient client, string language)
-    {
-        var html = await client.GetStringAsync("/settings");
-        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
-        Assert.True(match.Success, "На странице настроек не найден antiforgery token.");
-
-        var response = await client.PostAsync("/settings/language", new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("language", language),
-            new KeyValuePair<string, string>("__RequestVerificationToken", WebUtility.HtmlDecode(match.Groups["token"].Value))
-        ]));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
+    private static async Task SetLanguageAsync(TestHostFactory.TestHost host, string language) =>
+        await host.Services.GetRequiredService<AppSettingsService>().SetLanguageAsync(language, CancellationToken.None);
 }

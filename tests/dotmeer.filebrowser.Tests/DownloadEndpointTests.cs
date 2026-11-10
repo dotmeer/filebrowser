@@ -1,18 +1,12 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using dotmeer.filebrowser.Configuration;
-using dotmeer.filebrowser.Endpoints;
-using dotmeer.filebrowser.FileSystem;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace dotmeer.filebrowser.Tests;
 
 [Collection("Web application factory")]
-public sealed class DownloadTests
+public sealed class DownloadEndpointTests
 {
     [Fact]
     public async Task Download_ReturnsBytesContentTypeDispositionAndLength()
@@ -190,6 +184,50 @@ public sealed class DownloadTests
     }
 
     [Fact]
+    public async Task Download_InProduction_KeepsProblemDetailsContractWithoutPhysicalPath()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(
+            workspace.WriteConfiguration(workspace.RootPath),
+            environment: "Production");
+
+        using var response = await host.Client.GetAsync("/api/fs/download?root=files&path=absent.txt");
+        var body = await response.Content.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("not_found", json.RootElement.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("traceId").GetString()));
+        Assert.DoesNotContain(workspace.RootPath, body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Download_VirtualRoot_ReturnsSameFileAsDirectDownload()
+    {
+        using var workspace = new TestWorkspace();
+        var secondRootPath = Path.Combine(Path.GetDirectoryName(workspace.RootPath)!, "beta");
+        Directory.CreateDirectory(secondRootPath);
+        var content = "virtual root payload"u8.ToArray();
+        File.WriteAllBytes(Path.Combine(workspace.RootPath, "report.txt"), content);
+        using var host = TestHostFactory.Create(workspace.WriteRawConfiguration(
+            $"roots:\n  - name: alpha\n    path: '{workspace.RootPath}'\n  - name: beta\n    path: '{secondRootPath}'\n"));
+        var client = host.Client;
+
+        using var direct = await client.GetAsync("/api/fs/download?root=alpha&path=report.txt");
+        using var viaVirtual = await client.GetAsync("/api/fs/download?root=AllRoots&path=alpha/report.txt");
+        var body = await viaVirtual.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(HttpStatusCode.OK, viaVirtual.StatusCode);
+        Assert.Equal(content, body);
+        Assert.Equal(
+            direct.Content.Headers.ContentDisposition?.FileNameStar ?? direct.Content.Headers.ContentDisposition?.FileName,
+            viaVirtual.Content.Headers.ContentDisposition?.FileNameStar ?? viaVirtual.Content.Headers.ContentDisposition?.FileName);
+        Assert.Equal("report.txt", viaVirtual.Content.Headers.ContentDisposition?.FileNameStar
+            ?? viaVirtual.Content.Headers.ContentDisposition?.FileName);
+    }
+
+    [Fact]
     public async Task OpenFile_ReturnsLastPathSegmentAsNameForNestedFile()
     {
         using var workspace = new TestWorkspace();
@@ -197,56 +235,14 @@ public sealed class DownloadTests
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, "note.txt"), "content");
         var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteConfiguration(workspace.RootPath));
-        var reader = new FileSystemReadService(configuration, new PathResolver(configuration));
+        var reader = new dotmeer.filebrowser.FileSystem.FileSystemReadService(configuration, new dotmeer.filebrowser.FileSystem.PathResolver(configuration));
 
-        var file = reader.OpenFile(new FileRef("files", "documents/note.txt"));
+        var file = reader.OpenFile(new dotmeer.filebrowser.FileSystem.FileRef("files", "documents/note.txt"));
 
         Assert.Equal("note.txt", file.Name);
         using (var streamReader = new StreamReader(file.Stream))
         {
             Assert.Equal("content", await streamReader.ReadToEndAsync());
-        }
-    }
-
-    [Fact]
-    public async Task ApiExceptionMiddleware_RethrowsStreamErrorAfterResponseStarted()
-    {
-        var middleware = new ApiExceptionMiddleware(
-            async context =>
-            {
-                context.Response.StatusCode = StatusCodes.Status200OK;
-                await context.Response.WriteAsync("partial", context.RequestAborted);
-                throw new IOException("Сбой чтения файла.");
-            },
-            NullLogger<ApiExceptionMiddleware>.Instance,
-            new PassthroughLocalizer<dotmeer.filebrowser.SharedResources>());
-        var context = new DefaultHttpContext();
-        context.Request.Path = "/api/fs/download";
-        var responseFeature = new StartedResponseFeature();
-        context.Features.Set<IHttpResponseFeature>(responseFeature);
-        context.Features.Set<IHttpResponseBodyFeature>(
-            new StartedBodyFeature(new MemoryStream(), responseFeature));
-
-        await Assert.ThrowsAsync<IOException>(() => middleware.InvokeAsync(context));
-
-        context.Response.Body.Position = 0;
-        Assert.Equal("partial", await new StreamReader(context.Response.Body).ReadToEndAsync());
-    }
-
-    private sealed class StartedResponseFeature : HttpResponseFeature
-    {
-        public bool Started { get; set; }
-
-        public override bool HasStarted => Started;
-    }
-
-    private sealed class StartedBodyFeature(Stream stream, StartedResponseFeature response)
-        : StreamResponseBodyFeature(stream)
-    {
-        public override Task StartAsync(CancellationToken cancellationToken = default)
-        {
-            response.Started = true;
-            return base.StartAsync(cancellationToken);
         }
     }
 

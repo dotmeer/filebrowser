@@ -145,27 +145,6 @@ public sealed class TaskInfrastructureTests
         Assert.Equal(["first.txt", "second.txt"], executor.SourcePaths);
     }
 
-    [Fact]
-    public async Task TasksApi_ReturnsPagedPublicTasksAndRejectsLargeLimit()
-    {
-        using var workspace = new TestWorkspace();
-        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath, workers: 1), new RecordingExecutor());
-        var repository = host.Services.GetRequiredService<TaskRepository>();
-        var task = await repository.CreateQueuedAsync(FileTaskType.Move, [new FileRef("files", "a.txt")], new FileRef("files", "destination"));
-
-        var response = await host.Client.GetAsync("/api/tasks?offset=0&limit=50");
-        var body = await response.Content.ReadAsStringAsync();
-        var detail = await host.Client.GetAsync($"/api/tasks/{task.Id:D}");
-        var largeLimit = await host.Client.GetAsync("/api/tasks?limit=51");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains(task.Id.ToString(), body, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("a.txt", body);
-        Assert.DoesNotContain(workspace.RootPath, body, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, largeLimit.StatusCode);
-    }
-
     private static TaskRepository CreateRepository(string databasePath)
     {
         var database = new TaskDatabase(databasePath);

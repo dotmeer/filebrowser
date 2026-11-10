@@ -66,7 +66,8 @@ dotnet run --project src/dotmeer.filebrowser
 Проверка работоспособности:
 
 ```text
-GET /healthz → 200 {"status":"ok"}
+GET /health/live  → 200 Healthy
+GET /health/ready → 200 Healthy
 ```
 
 ## Запуск через Docker Compose
@@ -162,17 +163,22 @@ SQLite создаётся рядом с активным `ConfigPath` (по ум
   недоступны;
 - внешние изменения файлов появляются после кнопки «Обновить».
 
-## HTTP API
+## HTTP-интерфейс
 
-Для скриптов и интеграций доступен Minimal API (`/api/fs/*`,
-`/api/tasks/*`) с теми же правилами, что и у UI. Изменяющие запросы
-требуют antiforgery token. Поиск — `GET /api/fs/search?root=...&path=...&
-q=...&ext=...&limit=...` (не более 500 результатов, glob-фильтр `ext`,
-флаг `truncated` при усечении). Полный контракт — в `docs/SPEC.md` §16.
+Внешний изменяющий API не предоставляется: все операции выполняются
+через UI (Blazor вызывает прикладные сервисы напрямую). Наружу открыты
+только два вида эндпоинтов:
+
+- скачивание файла: `GET /api/fs/download?root=...&path=...`
+  (поддерживается виртуальный корень `AllRoots`, Range-запросы);
+- health-checks: `GET /health/live`, `GET /health/ready`
+  (для liveness/readiness-проб оркестратора).
+
+Полный контракт — в `docs/SPEC.md` §16 и §5.3.
 
 ## Наблюдаемость
 
-Логи пишутся в stdout в JSON; ошибки API содержат `traceId`.
+Логи пишутся в stdout в JSON; ошибки содержат `traceId`.
 OpenTelemetry tracing/metrics включены, экспорт в OTLP Collector —
 опционально через стандартные `OTEL_*` переменные. Подробности —
 в `docs/OPERATIONS.md`.
@@ -188,7 +194,7 @@ docker compose config
 
 ## Документы
 
-- `docs/SPEC.md` — требования, границы MVP, контракты API, политики;
+- `docs/SPEC.md` — требования, границы MVP, HTTP-интерфейс, политики;
 - `docs/PROJECT_STATE.md` — текущее состояние и подтверждённые проверки;
 - `docs/ROADMAP.md` — направления после MVP (не обязательства);
 - `docs/OPERATIONS.md` — эксплуатация: Docker-внутренности, OTLP, backup;

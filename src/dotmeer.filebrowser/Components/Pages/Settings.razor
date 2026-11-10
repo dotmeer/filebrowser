@@ -2,6 +2,7 @@
 @using dotmeer.filebrowser.Settings
 @inject IStringLocalizer<SharedResources> L
 @inject AppSettingsService AppSettings
+@inject NavigationManager Navigation
 
 <PageTitle>@L["Settings_Title"]</PageTitle>
 
@@ -13,15 +14,14 @@
 
     <section class="settings-section" aria-labelledby="language-heading">
         <h2 id="language-heading">@L["Settings_Language"]</h2>
-        <form method="post" action="/settings/language" class="settings-language-form">
-            <AntiforgeryToken />
+        <div class="settings-language-form">
             <label class="visually-hidden" for="language-select">@L["Settings_Language"]</label>
-            <select id="language-select" name="language" class="form-select settings-language">
-                <option value="en" selected="@(AppSettings.GetLanguage() == "en")">@L["Language_English"]</option>
-                <option value="ru" selected="@(AppSettings.GetLanguage() == "ru")">@L["Language_Russian"]</option>
+            <select id="language-select" class="form-select settings-language" @bind="_language">
+                <option value="en">@L["Language_English"]</option>
+                <option value="ru">@L["Language_Russian"]</option>
             </select>
-            <button class="btn btn-outline-primary" type="submit">@L["Settings_SaveLanguage"]</button>
-        </form>
+            <button class="btn btn-outline-primary" type="button" @onclick="SaveLanguageAsync">@L["Settings_SaveLanguage"]</button>
+        </div>
     </section>
 
     <section class="settings-section" aria-labelledby="theme-heading">
@@ -49,3 +49,21 @@
         <p>@L["Settings_ConfigurationDescription2"]</p>
     </section>
 </section>
+
+@code {
+    private string _language = "en";
+
+    protected override void OnInitialized()
+    {
+        _language = AppSettings.GetLanguage();
+    }
+
+    private async Task SaveLanguageAsync()
+    {
+        // Полная перезагрузка страницы: новая культура применяется middleware
+        // локализации ко всей странице и будущим Blazor circuit
+        // (язык — серверная настройка из SQLite, см. StoredLanguageProvider).
+        await AppSettings.SetLanguageAsync(_language, CancellationToken.None);
+        Navigation.NavigateTo("/settings", forceLoad: true);
+    }
+}

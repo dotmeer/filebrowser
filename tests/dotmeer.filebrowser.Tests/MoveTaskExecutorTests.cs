@@ -237,93 +237,6 @@ public sealed class MoveTaskExecutorTests
     }
 
     [Fact]
-    public async Task MoveEndpoint_QueuesAndCompletesMoveWithAntiforgery()
-    {
-        using var workspace = new TestWorkspace();
-        File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "moved by worker");
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "target"));
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
-        {
-            Content = JsonContent.Create(new
-            {
-                sources = new[] { new { root = "files", path = "source.txt" } },
-                destination = new { root = "files", path = "target" }
-            })
-        };
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        using var response = await host.Client.SendAsync(request);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var taskId = body.RootElement.GetProperty("id").GetGuid();
-        var completed = await WaitForStatusAsync(host.Services.GetRequiredService<TaskRepository>(), taskId, FileTaskStatus.Completed);
-
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal($"/api/tasks/{taskId:D}", response.Headers.Location?.ToString());
-        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "source.txt")));
-        Assert.Equal("moved by worker", File.ReadAllText(Path.Combine(workspace.RootPath, "target", "source.txt")));
-        Assert.Equal("completed", Assert.Single(completed.Items).Status);
-    }
-
-    [Fact]
-    public async Task MoveEndpoint_RejectsSourcesFromDifferentParentsWithBadRequest()
-    {
-        using var workspace = new TestWorkspace();
-        File.WriteAllText(Path.Combine(workspace.RootPath, "first.txt"), "first");
-        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "other"));
-        File.WriteAllText(Path.Combine(workspace.RootPath, "other", "second.txt"), "second");
-        var target = Path.Combine(workspace.RootPath, "target");
-        Directory.CreateDirectory(target);
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
-        var token = await GetAntiforgeryTokenAsync(host.Client);
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/tasks/move")
-        {
-            Content = JsonContent.Create(new
-            {
-                sources = new[]
-                {
-                    new { root = "files", path = "first.txt" },
-                    new { root = "files", path = "other/second.txt" }
-                },
-                destination = new { root = "files", path = "target" }
-            })
-        };
-        request.Headers.Add("X-CSRF-TOKEN", token);
-        using var response = await host.Client.SendAsync(request);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("invalid_request", body.RootElement.GetProperty("code").GetString());
-        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "first.txt")));
-        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "other", "second.txt")));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
-    }
-
-    [Fact]
-    public async Task MoveEndpoint_WithoutAntiforgeryDoesNotMoveSource()
-    {
-        using var workspace = new TestWorkspace();
-        File.WriteAllText(Path.Combine(workspace.RootPath, "source.txt"), "keep");
-        var target = Path.Combine(workspace.RootPath, "target");
-        Directory.CreateDirectory(target);
-        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath, workers: 1));
-
-        using var response = await host.Client.PostAsJsonAsync("/api/tasks/move", new
-        {
-            sources = new[] { new { root = "files", path = "source.txt" } },
-            destination = new { root = "files", path = "target" }
-        });
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("antiforgery_validation_failed", body.RootElement.GetProperty("code").GetString());
-        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "source.txt")));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
-    }
-
-    [Fact]
     public async Task Execute_RealCrossDeviceMove_WhenSecondFileSystemIsProvided()
     {
         var secondaryRoot = Environment.GetEnvironmentVariable("FILEBROWSER_CROSS_DEVICE_ROOT");
@@ -425,14 +338,6 @@ public sealed class MoveTaskExecutorTests
         }
 
         throw new TimeoutException($"Задача {taskId} не достигла состояния {expected}.");
-    }
-
-    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
-    {
-        var html = await client.GetStringAsync("/browse?root=files");
-        var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
-        Assert.True(match.Success, "На странице не найден antiforgery token.");
-        return WebUtility.HtmlDecode(match.Groups["token"].Value);
     }
 
     private class CrossDeviceEngine(PathResolver resolver, TaskRepository repository, TaskProgressService progress)
