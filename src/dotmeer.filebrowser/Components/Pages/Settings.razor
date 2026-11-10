@@ -1,4 +1,5 @@
 @page "/settings"
+@rendermode InteractiveServer
 @using dotmeer.filebrowser.Settings
 @inject IStringLocalizer<SharedResources> L
 @inject AppSettingsService AppSettings
@@ -8,7 +9,7 @@
 
 <section class="settings-page">
     <div class="settings-header">
-        <button class="btn btn-outline-secondary" type="button" data-nav-back>@L["Settings_Back"]</button>
+        <button class="settings-close" type="button" aria-label="@L["Settings_Close"]" title="@L["Settings_Close"]" data-nav-back>✕</button>
         <h1>@L["Settings_Title"]</h1>
     </div>
 

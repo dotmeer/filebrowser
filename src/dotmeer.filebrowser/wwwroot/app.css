@@ -597,17 +597,20 @@ h1:focus {
         margin: 0;
     }
 
-    .settings-header .btn {
-        background: var(--surface);
-        color: var(--primary);
-        border: 1px solid var(--outline);
-    }
+.settings-close {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: var(--on-surface-variant);
+    padding: 0.25rem 0.55rem;
+    font-size: 1.25rem;
+    line-height: 1;
+}
 
-        .settings-header .btn:hover:not(:disabled) {
-            background: var(--surface-hover);
-            border-color: var(--on-surface);
-            color: var(--primary);
-        }
+    .settings-close:hover, .settings-close:focus {
+        color: var(--primary);
+        background: var(--surface-hover);
+    }
 
 .settings-section {
     margin-top: 2rem;

@@ -116,6 +116,7 @@ public sealed class LocalizationTests
         var visibleText = WebUtility.HtmlDecode(html);
         Assert.Contains("Настройки", visibleText);
         Assert.Contains("Язык", visibleText);
+        Assert.Contains("Закрыть настройки", visibleText);
         Assert.Contains("lang=\"ru\"", html);
 
         var apiResponse = await host.Client.GetAsync("/api/fs/download?root=files&path=missing.txt");

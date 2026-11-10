@@ -154,55 +154,33 @@ window.fileBrowser = {
         });
     };
 
-    const navigationMarkerKey = "filebrowser.navigated";
-
-    const markInAppNavigation = () => {
-        try {
-            window.sessionStorage.setItem(navigationMarkerKey, "1");
-        } catch {
-            // Ignore blocked storage; the fallback still handles direct entry.
+    // Enhanced navigation to an interactive page replaces the prerendered
+    // DOM when the Blazor circuit starts, resetting plain HTML controls.
+    // Re-sync whenever the DOM changes and theme controls are present.
+    // Setting the checked property does not mutate attributes, so this
+    // observer never loops on its own writes.
+    let syncControlsScheduled = false;
+    const scheduleSyncThemeControls = () => {
+        if (syncControlsScheduled) {
+            return;
         }
+
+        syncControlsScheduled = true;
+        window.requestAnimationFrame(() => {
+            syncControlsScheduled = false;
+            syncThemeControls();
+        });
     };
 
-    const cameFromAppPage = () => {
-        try {
-            const navigation = window.navigation;
-            if (navigation && navigation.currentEntry && navigation.entries) {
-                const index = navigation.currentEntry.index;
-                if (index <= 0) {
-                    return false;
-                }
+    new MutationObserver(scheduleSyncThemeControls).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+    });
 
-                const previous = navigation.entries()[index - 1];
-                return !!previous
-                    && !!previous.url
-                    && new URL(previous.url).origin === window.location.origin;
-            }
-        } catch {
-            // Fall through to the legacy checks below.
-        }
-
-        if (document.referrer) {
-            try {
-                return new URL(document.referrer).origin === window.location.origin;
-            } catch {
-                return false;
-            }
-        }
-
-        try {
-            return window.sessionStorage.getItem(navigationMarkerKey) === "1";
-        } catch {
-            return false;
-        }
-    };
-
+    // The settings close button always returns to the home page instead of
+    // walking the browser history.
     const goBack = () => {
-        if (window.history.length > 1 && cameFromAppPage()) {
-            window.history.back();
-        } else {
-            window.location.assign("/");
-        }
+        window.location.assign("/");
     };
 
     applyTheme(readPreference());
@@ -260,7 +238,6 @@ window.fileBrowser = {
     // reload and also restores <html> attributes from the server response,
     // dropping data-bs-theme. Re-apply the theme after every enhanced load.
     const handleEnhancedLoad = () => {
-        markInAppNavigation();
         refreshThemeUi();
         // Guard against Blazor patching <html> after the event is dispatched.
         window.requestAnimationFrame(refreshThemeUi);

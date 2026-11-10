@@ -111,6 +111,7 @@ public sealed class FileSystemReadUiTests
         Assert.Contains("Dark", html);
         Assert.Contains("name=\"theme-preference\"", html);
         Assert.Contains("data-nav-back", html);
+        Assert.Contains("aria-label=\"Close settings\"", html);
     }
 
     [Fact]
