@@ -33,7 +33,7 @@ public static class SearchNavigation
             query["highlight"] = highlight;
         }
 
-        return QueryHelpers.AddQueryString("/browse", query);
+        return QueryHelpers.AddQueryString("/", query);
     }
 
     public static string BuildSearchUrl(string root, string path, string query)
@@ -44,6 +44,6 @@ public static class SearchNavigation
             ["path"] = path,
             ["q"] = query
         };
-        return QueryHelpers.AddQueryString("/browse", parameters);
+        return QueryHelpers.AddQueryString("/", parameters);
     }
 }

@@ -1,4 +1,4 @@
-﻿@page "/browse"
+﻿@page "/"
 @rendermode InteractiveServer
 @using System.Globalization
 @using Microsoft.AspNetCore.WebUtilities
@@ -758,7 +758,7 @@
             ["root"] = fileRef.Root,
             ["path"] = fileRef.Path
         };
-        Navigation.NavigateTo(QueryHelpers.AddQueryString("/browse", query));
+        Navigation.NavigateTo(QueryHelpers.AddQueryString("/", query));
         return Task.CompletedTask;
     }
 

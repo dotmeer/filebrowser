@@ -83,7 +83,7 @@ public sealed class FileSystemReadUiTests
         File.WriteAllText(Path.Combine(directory, "note.txt"), "content");
         using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
 
-        var response = await host.Client.GetAsync("/browse?root=files&path=folder");
+        var response = await host.Client.GetAsync("/?root=files&path=folder");
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"Status: {response.StatusCode}; body: {html}");
@@ -91,6 +91,17 @@ public sealed class FileSystemReadUiTests
         Assert.Contains("note.txt", html);
         Assert.Contains("Refresh", html);
         Assert.DoesNotContain(workspace.RootPath, html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LegacyBrowseUrl_IsNotFoundAfterMoveToRoot()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
+
+        var response = await host.Client.GetAsync("/browse?root=files");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
@@ -120,7 +131,7 @@ public sealed class FileSystemReadUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
 
-        var response = await host.Client.GetAsync("/browse?root=files");
+        var response = await host.Client.GetAsync("/?root=files");
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -133,7 +144,7 @@ public sealed class FileSystemReadUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace.WriteConfiguration(workspace.RootPath));
 
-        var response = await host.Client.GetAsync("/browse?root=files&path=missing");
+        var response = await host.Client.GetAsync("/?root=files&path=missing");
         var html = await response.Content.ReadAsStringAsync();
         var visibleText = WebUtility.HtmlDecode(html);
 

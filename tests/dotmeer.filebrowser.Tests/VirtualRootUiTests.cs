@@ -14,7 +14,7 @@ public sealed class VirtualRootUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/browse");
+        var html = await host.Client.GetStringAsync("/");
 
         // Единственный узел верхнего уровня — «Все корни»; настроенные
         // корни не дублируются отдельными узлами (SPEC §9.1): их узлы
@@ -32,7 +32,7 @@ public sealed class VirtualRootUiTests
         using var host = CreateHost(workspace);
         await SetLanguageAsync(host, "ru");
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/"));
 
         Assert.Contains("title=\"Все корни\"", html);
     }
@@ -43,7 +43,7 @@ public sealed class VirtualRootUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=AllRoots"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=AllRoots"));
 
         // Доступные корни — каталоги, недоступный — неподдерживаемый элемент.
         Assert.Contains("📁", html);
@@ -64,7 +64,7 @@ public sealed class VirtualRootUiTests
         File.WriteAllText(Path.Combine(sub, "note.txt"), "note");
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/browse?root=AllRoots&path=alpha/sub");
+        var html = await host.Client.GetStringAsync("/?root=AllRoots&path=alpha/sub");
 
         Assert.Contains("note.txt", html);
         Assert.Contains("title=\"note.txt\"", html);
@@ -80,7 +80,7 @@ public sealed class VirtualRootUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/browse?root=AllRoots");
+        var html = await host.Client.GetStringAsync("/?root=AllRoots");
 
         foreach (var label in new[] { "Create folder", "Rename", "Copy", "Move", "Delete" })
         {
@@ -103,7 +103,7 @@ public sealed class VirtualRootUiTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "hit-a.txt"), "a");
         File.WriteAllText(Path.Combine(SecondRootPath(workspace), "hit-b.txt"), "b");
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=AllRoots&q=hit"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=AllRoots&q=hit"));
 
         Assert.Contains("hit-a.txt", html);
         Assert.Contains("hit-b.txt", html);
@@ -123,7 +123,7 @@ public sealed class VirtualRootUiTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "hit-a.txt"), "a");
         using var host = CreateAvailableRootsHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=AllRoots&q=hit"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=AllRoots&q=hit"));
 
         Assert.Contains("hit-a.txt", html);
         Assert.DoesNotContain("search-unavailable-roots", html);

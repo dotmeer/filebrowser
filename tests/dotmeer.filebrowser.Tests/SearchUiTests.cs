@@ -26,7 +26,7 @@ public sealed class SearchNavigationTests
     {
         var url = SearchNavigation.BuildBrowseUrl("files", "docs/report", "годовой отчёт 2026.txt");
 
-        Assert.StartsWith("/browse?", url);
+        Assert.StartsWith("/?", url);
         Assert.Contains("root=files", url);
         Assert.Contains("path=docs%2Freport", url);
         Assert.Contains($"highlight={Uri.EscapeDataString("годовой отчёт 2026.txt")}", url);
@@ -80,7 +80,7 @@ public sealed class SearchUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/browse");
+        var html = await host.Client.GetStringAsync("/");
 
         Assert.Contains("placeholder=\"Search in current folder\"", html);
         Assert.Contains(">Search</button>", html);
@@ -93,7 +93,7 @@ public sealed class SearchUiTests
         using var host = CreateHost(workspace);
         await SetLanguageAsync(host, "ru");
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/"));
 
         Assert.Contains("placeholder=\"Поиск в текущей папке\"", html);
         Assert.Contains(">Найти</button>", html);
@@ -107,7 +107,7 @@ public sealed class SearchUiTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "report-2026.txt"), "data");
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=report"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=report"));
 
         Assert.Contains("Search results: \"report\"", html);
         Assert.Contains("aria-label=\"Close search\"", html);
@@ -127,7 +127,7 @@ public sealed class SearchUiTests
         using var host = CreateHost(workspace);
         await SetLanguageAsync(host, "ru");
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=note"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=note"));
 
         Assert.Contains("Результаты поиска: «note»", html);
         Assert.Contains("aria-label=\"Закрыть поиск\"", html);
@@ -141,7 +141,7 @@ public sealed class SearchUiTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "a.txt"), "x");
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=zzz"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=zzz"));
 
         Assert.Contains("Nothing found.", html);
     }
@@ -157,7 +157,7 @@ public sealed class SearchUiTests
 
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=match"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=match"));
 
         Assert.Contains("There are more results than shown.", html);
         Assert.Contains("match-000.txt", html);
@@ -169,7 +169,7 @@ public sealed class SearchUiTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=missing&q=x"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=missing&q=x"));
 
         Assert.Contains("The root or directory was not found.", html);
     }
@@ -181,7 +181,7 @@ public sealed class SearchUiTests
         File.WriteAllText(Path.Combine(workspace.RootPath, "solo.txt"), "x");
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/browse?root=files&q=solo");
+        var html = await host.Client.GetStringAsync("/?root=files&q=solo");
 
         Assert.Contains("solo.txt", html);
         // Подзаголовок всегда показывает путь от корня, с префиксом /.
@@ -198,7 +198,7 @@ public sealed class SearchUiTests
         File.WriteAllText(Path.Combine(documents, "demo.txt"), "x");
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=demo"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=demo"));
 
         Assert.Contains("demo.txt", html);
         // Подзаголовок: родительский путь от корня, включая имя корня.
@@ -216,7 +216,7 @@ public sealed class SearchUiTests
         Directory.CreateDirectory(Path.Combine(workspace.RootPath, "beta", "shared"));
         using var host = CreateHost(workspace);
 
-        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/browse?root=files&q=shared"));
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=files&q=shared"));
 
         Assert.Contains(">/files/alpha</span>", html);
         Assert.Contains(">/files/beta</span>", html);
@@ -232,7 +232,7 @@ public sealed class SearchUiTests
         File.WriteAllText(Path.Combine(subDirectory, "report.txt"), "x");
         using var host = CreateHost(workspace);
 
-        var url = $"/browse?root=files&path=sub&highlight={Uri.EscapeDataString("report.txt")}";
+        var url = $"/?root=files&path=sub&highlight={Uri.EscapeDataString("report.txt")}";
         var html = await host.Client.GetStringAsync(url);
 
         Assert.Contains("row-highlighted", html);

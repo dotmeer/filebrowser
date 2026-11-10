@@ -249,7 +249,7 @@ public sealed class TaskManagementTests
 
     private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
     {
-        var html = await client.GetStringAsync("/browse?root=files");
+        var html = await client.GetStringAsync("/?root=files");
         var match = Regex.Match(html, "name=\\\"__RequestVerificationToken\\\"[^>]*value=\\\"(?<token>[^\\\"]+)\\\"");
         Assert.True(match.Success, "На странице не найден antiforgery token.");
         return WebUtility.HtmlDecode(match.Groups["token"].Value);
