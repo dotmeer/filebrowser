@@ -177,43 +177,74 @@ public sealed class VirtualRootServiceTests
     }
 
     [Fact]
-    public void Mutations_VirtualRootRejectedWithInvalidRequestAndDoNotChangeFileSystem()
+    public void Mutations_VirtualRootTopLevelRejectedWithInvalidRequest()
+    {
+        using var workspace = new TestWorkspace();
+        var services = CreateServices(workspace);
+
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            services.Writer.CreateDirectory(new FileRef("AllRoots", string.Empty), "new-dir"));
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            services.Resolver.ResolveNewChild(new FileRef("AllRoots", string.Empty), "new-dir"));
+    }
+
+    [Fact]
+    public void Mutations_UnderVirtualRoot_DelegateToRealRoot()
     {
         using var workspace = new TestWorkspace();
         var notePath = Path.Combine(workspace.RootPath, "note.txt");
         File.WriteAllText(notePath, "note");
         var services = CreateServices(workspace);
 
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Writer.CreateDirectory(new FileRef("AllRoots", string.Empty), "new-dir"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Writer.CreateDirectory(new FileRef("AllRoots", "alpha"), "new-dir"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Writer.Rename(new FileRef("AllRoots", "alpha/note.txt"), "renamed.txt"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Writer.Delete(new FileRef("AllRoots", "alpha/note.txt")));
+        var created = services.Writer.CreateDirectory(new FileRef("AllRoots", "alpha"), "new-dir");
+        Assert.Equal("alpha", created.Root);
+        Assert.Equal("new-dir", created.Path);
+        Assert.True(Directory.Exists(Path.Combine(workspace.RootPath, "new-dir")));
 
-        Assert.True(File.Exists(notePath));
-        Assert.False(Directory.Exists(Path.Combine(workspace.RootPath, "new-dir")));
+        var renamed = services.Writer.Rename(new FileRef("AllRoots", "alpha/note.txt"), "renamed.txt");
+        Assert.Equal("alpha", renamed.Root);
+        Assert.Equal("renamed.txt", renamed.Path);
+        Assert.True(File.Exists(Path.Combine(workspace.RootPath, "renamed.txt")));
+        Assert.False(File.Exists(notePath));
+
+        services.Writer.Delete(new FileRef("AllRoots", "alpha/renamed.txt"));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "renamed.txt")));
     }
 
     [Fact]
-    public void CopyMoveResolution_VirtualRootRejectedByResolverForSourcesAndDestination()
+    public void Mutations_VirtualRootItselfCannotBeRenamedOrDeleted()
     {
         using var workspace = new TestWorkspace();
         var services = CreateServices(workspace);
 
-        // FileTransferEngine разрешает источники и назначение через ResolveExisting,
-        // публикация имени назначения — через ResolveNewChild: виртуальный корень
-        // отклоняется resolver-ом для всех этих операций.
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            services.Writer.Rename(new FileRef("AllRoots", "alpha"), "renamed"));
+        Assert.Throws<InvalidFileSystemRequestException>(() =>
+            services.Writer.Delete(new FileRef("AllRoots", "alpha")));
+    }
+
+    [Fact]
+    public void CopyMoveResolution_DelegatesPathsUnderVirtualRootAndRejectsTopLevel()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "note");
+        var services = CreateServices(workspace);
+
+        // Верхний уровень виртуального корня остаётся read-only.
         Assert.Throws<InvalidFileSystemRequestException>(() =>
             services.Resolver.ResolveExisting(new FileRef("AllRoots", string.Empty)));
         Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Resolver.ResolveExisting(new FileRef("AllRoots", "alpha/note.txt")));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
             services.Resolver.ResolveNewChild(new FileRef("AllRoots", string.Empty), "name"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Resolver.ResolveNewChild(new FileRef("AllRoots", "alpha"), "name"));
+
+        // Путь под виртуальным корнем делегируется реальному корню.
+        var source = services.Resolver.ResolveExisting(new FileRef("AllRoots", "alpha/note.txt"));
+        Assert.Equal("alpha", source.Root);
+        Assert.Equal("note.txt", source.RelativePath);
+        Assert.Equal(Path.Combine(workspace.RootPath, "note.txt"), source.PhysicalPath);
+
+        var child = services.Resolver.ResolveNewChild(new FileRef("AllRoots", "alpha"), "name");
+        Assert.Equal("alpha", child.Root);
+        Assert.Equal("name", child.RelativePath);
     }
 
     private static Services CreateServices(TestWorkspace workspace)

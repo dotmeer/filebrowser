@@ -22,14 +22,26 @@
     </header>
 
     <p class="task-route">
-        @foreach (var source in Task.Sources)
+        @if (Task.Type == FileTaskType.Upload)
         {
-            <code>@Presentation.FormatReference(source)</code>
-        }
-        @if (Task.Type != FileTaskType.Delete)
-        {
-            <span aria-hidden="true">→</span>
             <code>@Presentation.FormatReference(Task.Destination)</code>
+            <span aria-hidden="true">←</span>
+            @foreach (var source in Task.Sources)
+            {
+                <code>@Presentation.FormatReference(source)</code>
+            }
+        }
+        else
+        {
+            @foreach (var source in Task.Sources)
+            {
+                <code>@Presentation.FormatReference(source)</code>
+            }
+            @if (Task.Type != FileTaskType.Delete)
+            {
+                <span aria-hidden="true">→</span>
+                <code>@Presentation.FormatReference(Task.Destination)</code>
+            }
         }
     </p>
 

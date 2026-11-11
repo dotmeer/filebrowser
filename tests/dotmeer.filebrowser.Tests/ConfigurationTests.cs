@@ -41,6 +41,42 @@ public class ConfigurationTests
     }
 
     [Fact]
+    public void Load_AppliesDefaultUploadLimit()
+    {
+        using var workspace = new TestWorkspace();
+
+        var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteConfiguration(workspace.RootPath));
+
+        Assert.Equal(UploadOptions.DefaultMaxFileBytes, configuration.Uploads.MaxFileBytes);
+        Assert.Equal(8L * 1024 * 1024 * 1024, configuration.Uploads.MaxFileBytes);
+    }
+
+    [Fact]
+    public void Load_ReadsConfiguredUploadLimit()
+    {
+        using var workspace = new TestWorkspace();
+        var yaml = $"uploads:\n  maxFileBytes: 1024\nroots:\n  - name: files\n    path: '{workspace.RootPath}'\n";
+
+        var configuration = FileBrowserConfigurationLoader.Load(workspace.WriteRawConfiguration(yaml));
+
+        Assert.Equal(1024, configuration.Uploads.MaxFileBytes);
+    }
+
+    [Theory]
+    [InlineData("uploads:\n  maxFileBytes: 0\nroots:\n  - name: files\n    path: '{0}'\n")]
+    [InlineData("uploads:\n  maxFileBytes: -1\nroots:\n  - name: files\n    path: '{0}'\n")]
+    [InlineData("uploads:\n  maxFileBytes: not-a-number\nroots:\n  - name: files\n    path: '{0}'\n")]
+    [InlineData("uploads:\n  maxFileBytes: 10\n  unknown: true\nroots:\n  - name: files\n    path: '{0}'\n")]
+    public void Load_RejectsInvalidUploadConfiguration(string yamlTemplate)
+    {
+        using var workspace = new TestWorkspace();
+        var yaml = string.Format(yamlTemplate, workspace.RootPath);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            FileBrowserConfigurationLoader.Load(workspace.WriteRawConfiguration(yaml)));
+    }
+
+    [Fact]
     public void Load_AllowsConfigurationDirectoryOverlapAndFilesystemRoot()
     {
         using var workspace = new TestWorkspace();

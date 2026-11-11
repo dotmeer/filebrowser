@@ -35,4 +35,7 @@ public static class FileTaskErrorCodes
     public const string ServiceFileProtected = "service_file_protected";
     public const string ArtifactInUse = "artifact_in_use";
     public const string DeleteIncomplete = "delete_incomplete";
+    public const string UploadAborted = "upload_aborted";
+    public const string UploadIncomplete = "upload_incomplete";
+    public const string FileTooLarge = "file_too_large";
 }

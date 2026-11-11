@@ -1075,3 +1075,110 @@ h1:focus {
         min-width: 620px;
     }
 }
+
+/* ===== Загрузка файлов (SPEC §11) ===== */
+.directory-content.upload-drop-active {
+    outline: 2px dashed var(--primary);
+    outline-offset: -6px;
+    background: var(--surface-hover);
+}
+
+.upload-panel {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    width: min(380px, calc(100vw - 2rem));
+    max-height: 50vh;
+    overflow: auto;
+    background: var(--surface-variant);
+    border: 1px solid var(--outline-variant);
+    box-shadow: var(--shadow-overlay);
+    z-index: 1050;
+}
+
+.upload-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--outline-variant);
+}
+
+    .upload-panel-header h2 {
+        margin: 0;
+        font-size: 0.95rem;
+    }
+
+.upload-panel-close,
+.upload-item-cancel {
+    border: 0;
+    background: transparent;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+}
+
+    .upload-panel-close:hover,
+    .upload-item-cancel:hover {
+        background: var(--surface-hover);
+        color: var(--on-surface);
+    }
+
+.upload-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.75rem;
+}
+
+.upload-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.upload-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.upload-item-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-item-status {
+    font-size: 0.8rem;
+    color: var(--on-surface-variant);
+}
+
+.upload-item-failed .upload-item-status {
+    color: var(--error);
+}
+
+.upload-item-cancelled .upload-item-status {
+    color: var(--warning);
+}
+
+.upload-progress {
+    height: 6px;
+    background: var(--outline-variant);
+    overflow: hidden;
+}
+
+.upload-progress-bar {
+    height: 100%;
+    width: 0;
+    background: var(--primary);
+    transition: width 0.2s ease;
+}
+
+.upload-item-completed .upload-progress-bar {
+    background: var(--success);
+}

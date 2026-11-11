@@ -1,8 +1,10 @@
 ﻿@page "/"
+@implements IAsyncDisposable
 @rendermode InteractiveServer
 @using System.Globalization
 @using Microsoft.AspNetCore.WebUtilities
 @using dotmeer.filebrowser.Archive
+@using dotmeer.filebrowser.Configuration
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
 @inject FileSystemSearchService SearchService
@@ -12,6 +14,7 @@
 @inject TaskDispatcher Dispatcher
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
+@inject FileBrowserConfiguration Configuration
 @inject IStringLocalizer<SharedResources> L
 
 <PageTitle>@L["Файлы"]</PageTitle>
@@ -51,7 +54,7 @@
         </aside>
         <PanelSplitter Side="prev" />
 
-        <main class="directory-content">
+        <main class="directory-content" data-upload-dropzone>
             <div class="browse-actions" aria-label="@L["Действия с файлами"]">
                 <form class="search-form" role="search" @onsubmit="SubmitSearchAsync" @onsubmit:preventDefault>
                     <input class="form-control search-input" type="search" @bind="_searchInput" @bind:event="oninput"
@@ -68,22 +71,28 @@
                         @L["Обновить"]
                     </button>
                     <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog"
-                            disabled="@(_loading || _listing is null || IsVirtualRootView)"
+                            disabled="@(_loading || _listing is null || IsVirtualRootTopLevel)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Создать папку"]
                     </button>
+                    <button class="btn btn-primary" type="button" data-upload-trigger
+                            disabled="@(!CanUpload)" title="@UploadUnavailableHint">
+                        @L["Загрузить"]
+                    </button>
+                    <input id="upload-input" class="visually-hidden" type="file" multiple
+                           disabled="@(!CanUpload)" aria-hidden="true" />
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected"
-                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootView)"
+                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootTopLevel)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Переименовать"]
                     </button>
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenCopySelected"
-                            disabled="@(!CanStartTask || _loading || IsVirtualRootView)"
+                            disabled="@(!CanStartTask || _loading || IsVirtualRootTopLevel)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Копировать"]
                     </button>
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenMoveSelected"
-                            disabled="@(!CanStartTask || _loading || IsVirtualRootView)"
+                            disabled="@(!CanStartTask || _loading || IsVirtualRootTopLevel)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Переместить"]
                     </button>
@@ -104,7 +113,7 @@
                            title="@ArchiveUnavailableHint">@L["Скачать"]</a>
                     }
                     <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
-                            disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootView)"
+                            disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootTopLevel)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Удалить"]
                     </button>
@@ -442,6 +451,8 @@
     private bool _archiveBusy;
     private string? _archiveStatus;
     private string? _archiveError;
+    private DotNetObjectReference<Browse>? _selfReference;
+    private bool _disposed;
 
     private IReadOnlyList<FileEntryDto> SelectedEntries =>
         _listing is null
@@ -456,17 +467,26 @@
     private bool IsSearchActive => !string.IsNullOrWhiteSpace(SearchQuery);
 
     /// <summary>
-    /// Текущая панель показывает виртуальный корень (SPEC §9.1): изменяющие
-    /// действия заблокированы, чтение, скачивание и поиск доступны.
+    /// Верхний уровень виртуального корня (SPEC §7.1): список корней,
+    /// изменяющие действия недоступны. Внутри реального корня, открытого
+    /// через «Все корни», операции делегируются этому корню и доступны.
     /// </summary>
-    private bool IsVirtualRootView => VirtualRoot.IsVirtualRoot(_listing?.Root ?? RootQuery);
+    private bool IsVirtualRootTopLevel
+    {
+        get
+        {
+            var root = _listing?.Root ?? RootQuery;
+            var path = _listing?.Path ?? PathQuery;
+            return VirtualRoot.IsVirtualRoot(root) && string.IsNullOrEmpty(path);
+        }
+    }
 
     /// <summary>
-    /// Локализованная подсказка для заблокированных кнопок внутри виртуального
-    /// корня (SPEC §9.1); null вне виртуального корня — title не рендерится.
+    /// Локализованная подсказка для заблокированных кнопок на верхнем
+    /// уровне виртуального корня; null в остальных случаях.
     /// </summary>
     private string? VirtualRootReadOnlyHint =>
-        IsVirtualRootView ? (string?)L["В виртуальном корне доступно только чтение"] : null;
+        IsVirtualRootTopLevel ? (string?)L["В виртуальном корне доступно только чтение"] : null;
 
     /// <summary>
     /// Архив недоступен только в списке «Все корни» при выделении нескольких
@@ -474,7 +494,7 @@
     /// архивом, а внутри корня путь делегируется реальному корню (SPEC §12.2).
     /// </summary>
     private bool IsArchiveUnavailable =>
-        IsVirtualRootView
+        IsVirtualRootTopLevel
         && string.IsNullOrEmpty(_listing?.Path)
         && SelectedEntries is not [ { Kind: "directory" } ]
         && SelectedEntries.Count > 0;
@@ -493,6 +513,15 @@
     /// </summary>
     private bool CanDownloadArchiveSelection =>
         SelectedEntries.Count > 0 && !IsArchiveUnavailable;
+
+    /// <summary>
+    /// Загрузка доступна в обычном листинге реального корня (SPEC §9.4, §11):
+    /// не в результатах поиска, не в виртуальном корне и не во время загрузки.
+    /// </summary>
+    private bool CanUpload => !_loading && _listing is not null && !IsVirtualRootTopLevel;
+
+    private string? UploadUnavailableHint =>
+        IsVirtualRootTopLevel ? VirtualRootReadOnlyHint : null;
 
     private string GetDownloadUrl(FileEntryDto entry)
     {
@@ -528,10 +557,28 @@
 
     protected override Task OnParametersSetAsync() => LoadCurrentAsync();
 
+    protected override void OnInitialized()
+    {
+        _selfReference = DotNetObjectReference.Create(this);
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         try
         {
+            if (_selfReference is not null)
+            {
+                await JavaScript.InvokeVoidAsync(
+                    "fileBrowser.upload.configure",
+                    Configuration.Uploads.MaxFileBytes,
+                    BuildUploadStrings());
+                await JavaScript.InvokeVoidAsync(
+                    "fileBrowser.upload.setContext",
+                    _listing?.Root ?? RootQuery ?? string.Empty,
+                    _listing?.Path ?? PathQuery ?? string.Empty,
+                    CanUpload);
+            }
+
             await JavaScript.InvokeVoidAsync("fileBrowser.formatLocalTimes");
             if (!string.IsNullOrEmpty(HighlightQuery))
             {
@@ -619,6 +666,63 @@
 
     private Task RefreshAsync() => LoadCurrentAsync();
 
+    private Dictionary<string, string> BuildUploadStrings() => new()
+    {
+        ["panelTitle"] = L["Загрузка файлов"],
+        ["chooseFiles"] = L["Выбрать файлы"],
+        ["dropHint"] = L["Перетащите файлы в текущую папку"],
+        ["uploading"] = L["Загрузка файла…"],
+        ["waiting"] = L["Ожидание загрузки…"],
+        ["uploaded"] = L["Загружено"],
+        ["failed"] = L["Не удалось загрузить"],
+        ["tooLarge"] = L["Файл слишком большой"],
+        ["hide"] = L["Скрыть"],
+        ["networkError"] = L["Загрузка прервана: соединение потеряно."],
+        ["cancelled"] = L["Загрузка отменена."],
+        ["genericError"] = L["Не удалось загрузить файл. Повторите попытку."],
+        ["cancel"] = L["Отмена"],
+    };
+
+    /// <summary>
+    /// Вызывается загрузчиком после завершения файла: байты уже записаны
+    /// сервером, листинг нужно перечитать. В Blazor circuit передаётся
+    /// только событие, не содержимое файла.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnUploadsChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        await LoadCurrentAsync();
+        if (!_disposed)
+        {
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        try
+        {
+            await JavaScript.InvokeVoidAsync("fileBrowser.upload.dispose");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+        {
+            // The circuit is already gone; there is nothing left to clean up.
+        }
+
+        _selfReference?.Dispose();
+    }
+
     private Task SubmitSearchAsync()
     {
         var query = _searchInput.Trim();
@@ -668,7 +772,7 @@
 
     private void OpenContextMenu(FileEntryDto entry, MouseEventArgs args)
     {
-        if (IsSearchActive || IsVirtualRootView || entry.Kind == "unsupported")
+        if (IsSearchActive || IsVirtualRootTopLevel || entry.Kind == "unsupported")
         {
             return;
         }

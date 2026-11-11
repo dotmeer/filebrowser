@@ -228,4 +228,38 @@
   <data name="В выбранном дереве находятся служебные файлы приложения." xml:space="preserve"><value>The selected tree contains application service files.</value></data>
   <data name="В выбранном дереве есть временные объекты активных задач." xml:space="preserve"><value>The selected tree contains temporary objects of active tasks.</value></data>
   <data name="Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения." xml:space="preserve"><value>The object is hidden but not fully deleted. The space is freed when the application restarts.</value></data>
+  <data name="Загрузить" xml:space="preserve"><value>Upload</value></data>
+  <data name="Загрузка" xml:space="preserve"><value>Upload</value></data>
+  <data name="Загрузка файлов" xml:space="preserve"><value>Uploads</value></data>
+  <data name="Выбрать файлы" xml:space="preserve"><value>Choose files</value></data>
+  <data name="Перетащите файлы в текущую папку" xml:space="preserve"><value>Drop files into the current folder</value></data>
+  <data name="Загрузка файла…" xml:space="preserve"><value>Uploading…</value></data>
+  <data name="Ожидание загрузки…" xml:space="preserve"><value>Waiting to upload…</value></data>
+  <data name="Загружено" xml:space="preserve"><value>Uploaded</value></data>
+  <data name="Не удалось загрузить" xml:space="preserve"><value>Upload failed</value></data>
+  <data name="Файл слишком большой" xml:space="preserve"><value>File is too large</value></data>
+  <data name="Скрыть" xml:space="preserve"><value>Hide</value></data>
+  <data name="Загрузка недоступна в результатах поиска" xml:space="preserve"><value>Upload is not available in search results</value></data>
+  <data name="Ошибка загрузки." xml:space="preserve"><value>Upload failed.</value></data>
+  <data name="Загрузка прервана: соединение потеряно." xml:space="preserve"><value>Upload interrupted: the connection was lost.</value></data>
+  <data name="Загрузка не завершена: получено меньше данных, чем заявлено." xml:space="preserve"><value>Upload incomplete: less data was received than declared.</value></data>
+  <data name="Файл больше допустимого размера." xml:space="preserve"><value>The file exceeds the allowed size.</value></data>
+  <data name="Загрузка отменена." xml:space="preserve"><value>Upload cancelled.</value></data>
+  <data name="Не удалось загрузить файл. Повторите попытку." xml:space="preserve"><value>The file could not be uploaded. Try again.</value></data>
+  <data name="Error_Antiforgery_Title" xml:space="preserve"><value>Request rejected</value></data>
+  <data name="Error_Antiforgery_Detail" xml:space="preserve"><value>The security token is missing or invalid. Reload the page and try again.</value></data>
+  <data name="Error_InvalidName_Title" xml:space="preserve"><value>Invalid file name</value></data>
+  <data name="Error_InvalidName_Detail" xml:space="preserve"><value>The file name is not allowed. Use a single name without path separators.</value></data>
+  <data name="Error_FileTooLarge_Title" xml:space="preserve"><value>File is too large</value></data>
+  <data name="Error_FileTooLarge_Detail" xml:space="preserve"><value>The file exceeds the configured upload limit.</value></data>
+  <data name="Error_InsufficientSpace_Title" xml:space="preserve"><value>Not enough free space</value></data>
+  <data name="Error_InsufficientSpace_Detail" xml:space="preserve"><value>There is not enough free space in the destination folder.</value></data>
+  <data name="Error_UploadIncomplete_Title" xml:space="preserve"><value>Upload incomplete</value></data>
+  <data name="Error_UploadIncomplete_Detail" xml:space="preserve"><value>Less data was received than declared.</value></data>
+  <data name="Error_LengthRequired_Title" xml:space="preserve"><value>Request length required</value></data>
+  <data name="Error_LengthRequired_Detail" xml:space="preserve"><value>The upload request must declare Content-Length.</value></data>
+  <data name="Error_UploadCancelled_Title" xml:space="preserve"><value>Upload cancelled</value></data>
+  <data name="Error_UploadCancelled_Detail" xml:space="preserve"><value>The upload was cancelled.</value></data>
+  <data name="Error_NameConflict_Title" xml:space="preserve"><value>Name conflict</value></data>
+  <data name="Error_NameConflict_Detail" xml:space="preserve"><value>An object with this name already exists.</value></data>
 </root>

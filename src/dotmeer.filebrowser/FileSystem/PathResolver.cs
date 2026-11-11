@@ -24,32 +24,53 @@ public sealed class PathResolver
     private ResolvedPath ResolveExisting(FileRef fileRef, bool allowTemporaryArtifacts)
     {
         ArgumentNullException.ThrowIfNull(fileRef);
-        var root = GetRoot(fileRef.Root);
         var segments = ValidateRelativePath(fileRef.Path);
         if (!allowTemporaryArtifacts && segments.Any(IsTemporaryArtifactName))
         {
             throw new InvalidFileSystemRequestException("Служебные объекты недоступны через публичные операции.");
         }
 
+        // Виртуальный корень «Все корни» read-only только на верхнем уровне.
+        // Путь под ним (<корень>/<относительный путь>) делегируется реальному
+        // корню для всех операций, включая изменяющие (SPEC §7.1).
+        var (root, relativeSegments) = ResolveRoot(fileRef.Root, segments);
+
         EnsureRootIsAvailable(root);
 
         var currentPath = root.PhysicalPath;
-        for (var index = 0; index < segments.Count; index++)
+        for (var index = 0; index < relativeSegments.Count; index++)
         {
-            currentPath = Path.Combine(currentPath, segments[index]);
+            currentPath = Path.Combine(currentPath, relativeSegments[index]);
             if (!PathInspection.Exists(currentPath))
             {
                 throw new FileSystemObjectNotFoundException("Запрошенный объект не существует.");
             }
 
             PathInspection.ThrowIfUnsupported(currentPath);
-            if (index < segments.Count - 1 && !Directory.Exists(currentPath))
+            if (index < relativeSegments.Count - 1 && !Directory.Exists(currentPath))
             {
                 throw new InvalidFileSystemRequestException("Компонент пути не является каталогом.");
             }
         }
 
-        return new ResolvedPath(root.Name, string.Join('/', segments), currentPath, Directory.Exists(currentPath));
+        return new ResolvedPath(root.Name, string.Join('/', relativeSegments), currentPath, Directory.Exists(currentPath));
+    }
+
+    private (ConfiguredRoot Root, IReadOnlyList<string> Segments) ResolveRoot(
+        string rootName,
+        IReadOnlyList<string> segments)
+    {
+        if (VirtualRoot.IsVirtualRoot(rootName))
+        {
+            if (segments.Count == 0)
+            {
+                throw new InvalidFileSystemRequestException("Виртуальный корень доступен только для чтения.");
+            }
+
+            return (GetRoot(segments[0]), segments.Skip(1).ToArray());
+        }
+
+        return (GetRoot(rootName), segments);
     }
 
     public ResolvedPath ResolveNewChild(FileRef parent, string name)

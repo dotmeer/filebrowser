@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using dotmeer.filebrowser.Archive;
 using dotmeer.filebrowser.FileSystem;
+using dotmeer.filebrowser.Uploads;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Localization;
 
@@ -31,6 +32,10 @@ public static class FileSystemProblemMapper
             ArchiveLimitExceededException => (StatusCodes.Status400BadRequest, "archive_too_large", "Error_ArchiveTooLarge_Title", "Error_ArchiveTooLarge_Detail"),
             ArchiveBusyException => (StatusCodes.Status429TooManyRequests, "archive_busy", "Error_ArchiveBusy_Title", "Error_ArchiveBusy_Detail"),
             ArchiveScanTimeoutException => (StatusCodes.Status503ServiceUnavailable, "scan_timeout", "Error_ScanTimeout_Title", "Error_ScanTimeout_Detail"),
+            FileTooLargeException => (StatusCodes.Status413PayloadTooLarge, "file_too_large", "Error_FileTooLarge_Title", "Error_FileTooLarge_Detail"),
+            InsufficientSpaceException => (StatusCodes.Status507InsufficientStorage, "insufficient_space", "Error_InsufficientSpace_Title", "Error_InsufficientSpace_Detail"),
+            UploadIncompleteException => (StatusCodes.Status400BadRequest, "upload_incomplete", "Error_UploadIncomplete_Title", "Error_UploadIncomplete_Detail"),
+            FileSystemNameConflictException => (StatusCodes.Status409Conflict, "name_conflict", "Error_NameConflict_Title", "Error_NameConflict_Detail"),
             RootUnavailableException => (StatusCodes.Status503ServiceUnavailable, "root_unavailable", "Error_RootUnavailable_Title", "Error_RootUnavailable_Detail"),
             FileSystemObjectNotFoundException => (StatusCodes.Status404NotFound, "not_found", "Error_NotFound_Title", "Error_NotFound_Detail"),
             FileSystemAccessDeniedException => (StatusCodes.Status403Forbidden, "access_denied", "Error_AccessDenied_Title", "Error_AccessDenied_Detail"),

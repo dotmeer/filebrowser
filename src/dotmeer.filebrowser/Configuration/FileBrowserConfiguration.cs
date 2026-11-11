@@ -8,11 +8,15 @@ namespace dotmeer.filebrowser.Configuration;
 
 public sealed class FileBrowserConfiguration
 {
-    public FileBrowserConfiguration(int workers, IReadOnlyList<ConfiguredRoot> roots)
+    public FileBrowserConfiguration(
+        int workers,
+        IReadOnlyList<ConfiguredRoot> roots,
+        UploadOptions? uploads = null)
     {
         Workers = workers;
         Roots = roots;
         RootsByName = roots.ToDictionary(root => root.Name, StringComparer.OrdinalIgnoreCase);
+        Uploads = uploads ?? UploadOptions.Default;
     }
 
     public int Workers { get; }
@@ -20,9 +24,18 @@ public sealed class FileBrowserConfiguration
     public IReadOnlyList<ConfiguredRoot> Roots { get; }
 
     public IReadOnlyDictionary<string, ConfiguredRoot> RootsByName { get; }
+
+    public UploadOptions Uploads { get; }
 }
 
 public sealed record ConfiguredRoot(string Name, string PhysicalPath);
+
+public sealed record UploadOptions(long MaxFileBytes)
+{
+    public const long DefaultMaxFileBytes = 8L * 1024 * 1024 * 1024;
+
+    public static UploadOptions Default { get; } = new(DefaultMaxFileBytes);
+}
 
 public static partial class FileBrowserConfigurationLoader
 {
@@ -67,6 +80,12 @@ public static partial class FileBrowserConfigurationLoader
             throw new InvalidOperationException("Должен быть задан хотя бы один корень.");
         }
 
+        var maxFileBytes = document.Uploads?.MaxFileBytes ?? UploadOptions.DefaultMaxFileBytes;
+        if (maxFileBytes <= 0)
+        {
+            throw new InvalidOperationException("Значение uploads.maxFileBytes должно быть положительным целым числом.");
+        }
+
         var roots = new List<ConfiguredRoot>(document.Roots.Count);
         foreach (var root in document.Roots)
         {
@@ -101,7 +120,7 @@ public static partial class FileBrowserConfigurationLoader
             }
         }
 
-        return new FileBrowserConfiguration(workers, roots);
+        return new FileBrowserConfiguration(workers, roots, new UploadOptions(maxFileBytes));
     }
 
     [GeneratedRegex("^[a-z0-9][a-z0-9_-]{0,63}$", RegexOptions.CultureInvariant)]
@@ -112,6 +131,13 @@ public static partial class FileBrowserConfigurationLoader
         public int? Workers { get; init; }
 
         public List<RootDocument>? Roots { get; init; }
+
+        public UploadsDocument? Uploads { get; init; }
+    }
+
+    private sealed class UploadsDocument
+    {
+        public long? MaxFileBytes { get; init; }
     }
 
     private sealed class RootDocument

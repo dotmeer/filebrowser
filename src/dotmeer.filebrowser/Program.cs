@@ -8,6 +8,7 @@ using dotmeer.filebrowser.Localization;
 using dotmeer.filebrowser.Observability;
 using dotmeer.filebrowser.Settings;
 using dotmeer.filebrowser.Tasks;
+using dotmeer.filebrowser.Uploads;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -77,6 +78,8 @@ builder.Services.AddSingleton<ArchiveTicketStore>();
 builder.Services.AddSingleton<FileSystemArchiveService>();
 builder.Services.AddSingleton<ArchiveMetrics>();
 builder.Services.AddSingleton<FileSystemWriteService>();
+builder.Services.AddSingleton<UploadService>();
+builder.Services.AddSingleton<UploadMetrics>();
 builder.Services.AddSingleton(taskDatabase);
 builder.Services.AddSingleton<TaskNotificationService>();
 builder.Services.AddSingleton<TaskRepository>();
@@ -125,6 +128,7 @@ app.MapRazorComponents<App>()
 app.MapDownload();
 app.MapPreview();
 app.MapArchive();
+app.MapUpload();
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
 

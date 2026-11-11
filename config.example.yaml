@@ -1,6 +1,11 @@
 # The configuration is loaded once during startup.
 workers: 2
 
+# Optional: maximum size of a single uploaded file, in bytes.
+# Default: 8589934592 (8 GiB).
+# uploads:
+#   maxFileBytes: 8589934592
+
 roots:
   - name: files
     path: /data

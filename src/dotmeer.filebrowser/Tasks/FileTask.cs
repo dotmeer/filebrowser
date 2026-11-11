@@ -6,7 +6,8 @@ public enum FileTaskType
 {
     Copy,
     Move,
-    Delete
+    Delete,
+    Upload
 }
 
 public enum FileTaskStatus

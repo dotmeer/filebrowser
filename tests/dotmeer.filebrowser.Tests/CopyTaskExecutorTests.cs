@@ -46,6 +46,28 @@ public sealed class CopyTaskExecutorTests
     }
 
     [Fact]
+    public async Task Execute_CopyUnderVirtualRoot_DelegatesToRealRoots()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "content");
+        var (repository, executor) = CreateExecutor(workspace, destinationRoot);
+        var task = await CreateScanningTaskAsync(
+            repository,
+            [new FileRef("AllRoots", "source/note.txt")],
+            new FileRef("AllRoots", "destination"));
+
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
+        var running = await repository.GetAsync(task.Id);
+
+        Assert.NotNull(running);
+        Assert.Equal(FileTaskStatus.Running, running.Status);
+        Assert.Equal("content", File.ReadAllText(Path.Combine(destinationRoot, "note.txt")));
+        Assert.All(running.Items, item => Assert.Equal("completed", item.Status));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(destinationRoot, ".filebrowser-*"));
+    }
+
+    [Fact]
     public async Task Execute_CopiesDeepDirectoryTreeIteratively()
     {
         using var workspace = new TestWorkspace();

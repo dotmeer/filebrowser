@@ -228,4 +228,38 @@
   <data name="В выбранном дереве находятся служебные файлы приложения." xml:space="preserve"><value>В выбранном дереве находятся служебные файлы приложения.</value></data>
   <data name="В выбранном дереве есть временные объекты активных задач." xml:space="preserve"><value>В выбранном дереве есть временные объекты активных задач.</value></data>
   <data name="Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения." xml:space="preserve"><value>Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения.</value></data>
+  <data name="Загрузить" xml:space="preserve"><value>Загрузить</value></data>
+  <data name="Загрузка" xml:space="preserve"><value>Загрузка</value></data>
+  <data name="Загрузка файлов" xml:space="preserve"><value>Загрузки</value></data>
+  <data name="Выбрать файлы" xml:space="preserve"><value>Выбрать файлы</value></data>
+  <data name="Перетащите файлы в текущую папку" xml:space="preserve"><value>Перетащите файлы в текущую папку</value></data>
+  <data name="Загрузка файла…" xml:space="preserve"><value>Загрузка…</value></data>
+  <data name="Ожидание загрузки…" xml:space="preserve"><value>Ожидание загрузки…</value></data>
+  <data name="Загружено" xml:space="preserve"><value>Загружено</value></data>
+  <data name="Не удалось загрузить" xml:space="preserve"><value>Не удалось загрузить</value></data>
+  <data name="Файл слишком большой" xml:space="preserve"><value>Файл слишком большой</value></data>
+  <data name="Скрыть" xml:space="preserve"><value>Скрыть</value></data>
+  <data name="Загрузка недоступна в результатах поиска" xml:space="preserve"><value>Загрузка недоступна в результатах поиска</value></data>
+  <data name="Ошибка загрузки." xml:space="preserve"><value>Ошибка загрузки.</value></data>
+  <data name="Загрузка прервана: соединение потеряно." xml:space="preserve"><value>Загрузка прервана: соединение потеряно.</value></data>
+  <data name="Загрузка не завершена: получено меньше данных, чем заявлено." xml:space="preserve"><value>Загрузка не завершена: получено меньше данных, чем заявлено.</value></data>
+  <data name="Файл больше допустимого размера." xml:space="preserve"><value>Файл больше допустимого размера.</value></data>
+  <data name="Загрузка отменена." xml:space="preserve"><value>Загрузка отменена.</value></data>
+  <data name="Не удалось загрузить файл. Повторите попытку." xml:space="preserve"><value>Не удалось загрузить файл. Повторите попытку.</value></data>
+  <data name="Error_Antiforgery_Title" xml:space="preserve"><value>Запрос отклонён</value></data>
+  <data name="Error_Antiforgery_Detail" xml:space="preserve"><value>Токен безопасности отсутствует или недействителен. Перезагрузите страницу и повторите попытку.</value></data>
+  <data name="Error_InvalidName_Title" xml:space="preserve"><value>Недопустимое имя файла</value></data>
+  <data name="Error_InvalidName_Detail" xml:space="preserve"><value>Имя файла недопустимо. Используйте одно имя без разделителей пути.</value></data>
+  <data name="Error_FileTooLarge_Title" xml:space="preserve"><value>Файл слишком большой</value></data>
+  <data name="Error_FileTooLarge_Detail" xml:space="preserve"><value>Файл превышает настроенный лимит загрузки.</value></data>
+  <data name="Error_InsufficientSpace_Title" xml:space="preserve"><value>Недостаточно свободного места</value></data>
+  <data name="Error_InsufficientSpace_Detail" xml:space="preserve"><value>В каталоге назначения недостаточно свободного места.</value></data>
+  <data name="Error_UploadIncomplete_Title" xml:space="preserve"><value>Загрузка не завершена</value></data>
+  <data name="Error_UploadIncomplete_Detail" xml:space="preserve"><value>Получено меньше данных, чем заявлено.</value></data>
+  <data name="Error_LengthRequired_Title" xml:space="preserve"><value>Не указан размер запроса</value></data>
+  <data name="Error_LengthRequired_Detail" xml:space="preserve"><value>Запрос загрузки должен содержать Content-Length.</value></data>
+  <data name="Error_UploadCancelled_Title" xml:space="preserve"><value>Загрузка отменена</value></data>
+  <data name="Error_UploadCancelled_Detail" xml:space="preserve"><value>Загрузка была отменена.</value></data>
+  <data name="Error_NameConflict_Title" xml:space="preserve"><value>Конфликт имён</value></data>
+  <data name="Error_NameConflict_Detail" xml:space="preserve"><value>Объект с таким именем уже существует.</value></data>
 </root>

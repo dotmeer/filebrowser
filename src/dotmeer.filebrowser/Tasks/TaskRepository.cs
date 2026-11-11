@@ -6,7 +6,41 @@ namespace dotmeer.filebrowser.Tasks;
 
 public sealed class TaskRepository(TaskDatabase database, TaskNotificationService? notifications = null)
 {
-    public Task<FileTask> CreateQueuedAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default)
+    public Task<FileTask> CreateQueuedAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default) =>
+        CreateAsync(type, sources, destination, FileTaskStatus.Queued, "queued", null, null, cancellationToken);
+
+    /// <summary>
+    /// Creates a task that is already active and is not placed into the task
+    /// queue. Used by upload: its lifecycle is driven by the HTTP request that
+    /// carries the bytes, so a worker must never pick it up (SPEC §13.10).
+    /// </summary>
+    public Task<FileTask> CreateActiveAsync(
+        FileTaskType type,
+        IReadOnlyList<FileRef> sources,
+        FileRef destination,
+        FileTaskStatus status,
+        string stage,
+        long? bytesTotal,
+        long? itemsTotal,
+        CancellationToken cancellationToken = default)
+    {
+        if (!FileTaskStateTransitions.IsActive(status) || status == FileTaskStatus.Queued)
+        {
+            throw new ArgumentException("Активная задача должна быть создана в состоянии scanning/running/cancelling.", nameof(status));
+        }
+
+        return CreateAsync(type, sources, destination, status, stage, bytesTotal, itemsTotal, cancellationToken);
+    }
+
+    private Task<FileTask> CreateAsync(
+        FileTaskType type,
+        IReadOnlyList<FileRef> sources,
+        FileRef destination,
+        FileTaskStatus status,
+        string stage,
+        long? bytesTotal,
+        long? itemsTotal,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(destination);
@@ -16,7 +50,24 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         }
 
         var now = DateTimeOffset.UtcNow;
-        var task = new FileTask(Guid.NewGuid(), type, sources.ToArray(), [], destination, FileTaskStatus.Queued, "queued", 0, null, 0, null, null, now, null, now, null);
+        var startedAt = status == FileTaskStatus.Queued ? (DateTimeOffset?)null : now;
+        var task = new FileTask(
+            Guid.NewGuid(),
+            type,
+            sources.ToArray(),
+            [],
+            destination,
+            status,
+            stage,
+            0,
+            bytesTotal,
+            0,
+            itemsTotal,
+            null,
+            now,
+            startedAt,
+            now,
+            null);
         using var connection = database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         using (var command = connection.CreateCommand())
@@ -24,7 +75,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             command.Transaction = transaction;
             command.CommandText = """
                 INSERT INTO tasks(id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc)
-                VALUES ($id, $type, $status, $stage, $destinationRoot, $destinationPath, 0, NULL, 0, NULL, NULL, $createdAtUtc, NULL, $updatedAtUtc, NULL);
+                VALUES ($id, $type, $status, $stage, $destinationRoot, $destinationPath, 0, $bytesTotal, 0, $itemsTotal, NULL, $createdAtUtc, $startedAtUtc, $updatedAtUtc, NULL);
                 """;
             command.Parameters.AddWithValue("$id", task.Id.ToString("D"));
             command.Parameters.AddWithValue("$type", ToDatabaseValue(task.Type));
@@ -32,7 +83,10 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             command.Parameters.AddWithValue("$stage", task.Stage);
             command.Parameters.AddWithValue("$destinationRoot", destination.Root);
             command.Parameters.AddWithValue("$destinationPath", destination.Path);
+            command.Parameters.AddWithValue("$bytesTotal", (object?)bytesTotal ?? DBNull.Value);
+            command.Parameters.AddWithValue("$itemsTotal", (object?)itemsTotal ?? DBNull.Value);
             command.Parameters.AddWithValue("$createdAtUtc", ToDatabaseValue(now));
+            command.Parameters.AddWithValue("$startedAtUtc", (object?)startedAt is null ? DBNull.Value : ToDatabaseValue(startedAt.Value));
             command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(now));
             command.ExecuteNonQuery();
         }
@@ -43,11 +97,12 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             command.Transaction = transaction;
             command.CommandText = """
                 INSERT INTO task_items(task_id, source_root, source_path, status, error, items_done, items_total)
-                VALUES ($taskId, $sourceRoot, $sourcePath, 'pending', NULL, 0, NULL);
+                VALUES ($taskId, $sourceRoot, $sourcePath, 'pending', NULL, 0, $itemsTotal);
                 """;
             command.Parameters.AddWithValue("$taskId", task.Id.ToString("D"));
             command.Parameters.AddWithValue("$sourceRoot", source.Root);
             command.Parameters.AddWithValue("$sourcePath", source.Path);
+            command.Parameters.AddWithValue("$itemsTotal", (object?)itemsTotal ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
 

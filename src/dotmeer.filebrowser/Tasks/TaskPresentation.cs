@@ -97,6 +97,7 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskType.Copy => localizer["Копирование"],
         FileTaskType.Move => localizer["Перемещение"],
         FileTaskType.Delete => localizer["Удаление"],
+        FileTaskType.Upload => localizer["Загрузка"],
         _ => type.ToString()
     };
 
@@ -138,8 +139,12 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         {
             FileTaskType.Move => localizer["Ошибка перемещения."],
             FileTaskType.Delete => localizer["Ошибка удаления."],
+            FileTaskType.Upload => localizer["Ошибка загрузки."],
             _ => localizer["Ошибка копирования."]
         },
+        FileTaskErrorCodes.UploadAborted => localizer["Загрузка прервана: соединение потеряно."],
+        FileTaskErrorCodes.UploadIncomplete => localizer["Загрузка не завершена: получено меньше данных, чем заявлено."],
+        FileTaskErrorCodes.FileTooLarge => localizer["Файл больше допустимого размера."],
         FileTaskErrorCodes.MoveSourceNotDeleted => localizer["Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично."],
         FileTaskErrorCodes.ExecutorFailed => localizer["Исполнитель задачи завершился ошибкой."],
         FileTaskErrorCodes.TaskInterruptedRestart => localizer["Задача прервана перезапуском приложения."],

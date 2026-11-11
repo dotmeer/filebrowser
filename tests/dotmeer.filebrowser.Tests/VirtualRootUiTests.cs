@@ -89,10 +89,26 @@ public sealed class VirtualRootUiTests
                 html);
         }
 
+        Assert.Matches("<button[^>]*disabled[^>]*title=\"The virtual root is read-only\\.\"[^>]*>\\s*Upload</button>", html);
+        Assert.DoesNotContain("browse-readonly-note", html);
+
         // Чтение, обновление и поиск доступны.
         Assert.DoesNotMatch("<button[^>]*disabled[^>]*>\\s*Refresh</button>", html);
         Assert.Contains("placeholder=\"Search in current folder\"", html);
         Assert.DoesNotMatch("<input class=\"form-control search-input\"[^>]*disabled", html);
+    }
+
+    [Fact]
+    public async Task BrowsePage_VirtualRootUnderRealRoot_MutationsEnabled()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace);
+
+        var html = await host.Client.GetStringAsync("/?root=AllRoots&path=alpha");
+
+        Assert.DoesNotContain("The virtual root is read-only", html);
+        Assert.DoesNotMatch("<button[^>]*disabled[^>]*>\\s*Create folder</button>", html);
+        Assert.DoesNotMatch("<button[^>]*disabled[^>]*>\\s*Upload</button>", html);
     }
 
     [Fact]
