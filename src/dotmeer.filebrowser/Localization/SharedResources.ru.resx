@@ -53,7 +53,6 @@
   <data name="Копировать" xml:space="preserve"><value>Копировать</value></data>
   <data name="Переместить" xml:space="preserve"><value>Переместить</value></data>
   <data name="Скачать" xml:space="preserve"><value>Скачать</value></data>
-  <data name="Скачать ZIP" xml:space="preserve"><value>Скачать ZIP</value></data>
   <data name="Подготовка архива…" xml:space="preserve"><value>Подготовка архива…</value></data>
   <data name="Нельзя скачать все корни одним архивом" xml:space="preserve"><value>Нельзя скачать все корни одним архивом</value></data>
   <data name="Набор слишком большой для скачивания одним архивом." xml:space="preserve"><value>Набор слишком большой для скачивания одним архивом.</value></data>

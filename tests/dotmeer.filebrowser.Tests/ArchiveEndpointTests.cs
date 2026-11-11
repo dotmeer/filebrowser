@@ -250,13 +250,17 @@ public sealed class ArchiveEndpointTests
     }
 
     [Fact]
-    public async Task BrowsePage_ShowsArchiveDownloadAction()
+    public async Task BrowsePage_ShowsSingleDownloadAction()
     {
         using var workspace = new TestWorkspace();
         using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
         var english = await host.Client.GetStringAsync("/?root=files");
-        Assert.Contains("Download ZIP", english, StringComparison.Ordinal);
+
+        // Единая кнопка «Скачать» (SPEC §9.4): один файл — напрямую,
+        // папка или набор объектов — архивом. Отдельной кнопки ZIP нет.
+        Assert.Contains("Download", english, StringComparison.Ordinal);
+        Assert.DoesNotContain("Download ZIP", english, StringComparison.Ordinal);
     }
 
     private static string CreateTicket(

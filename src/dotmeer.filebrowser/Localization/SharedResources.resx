@@ -53,7 +53,6 @@
   <data name="Копировать" xml:space="preserve"><value>Copy</value></data>
   <data name="Переместить" xml:space="preserve"><value>Move</value></data>
   <data name="Скачать" xml:space="preserve"><value>Download</value></data>
-  <data name="Скачать ZIP" xml:space="preserve"><value>Download ZIP</value></data>
   <data name="Подготовка архива…" xml:space="preserve"><value>Preparing archive…</value></data>
   <data name="Нельзя скачать все корни одним архивом" xml:space="preserve"><value>All roots cannot be downloaded as a single archive</value></data>
   <data name="Набор слишком большой для скачивания одним архивом." xml:space="preserve"><value>The selection is too large for a single archive.</value></data>

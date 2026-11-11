@@ -91,15 +91,18 @@
                     {
                         <a class="btn btn-outline-secondary" href="@SelectedFileDownloadUrl" download>@L["Скачать"]</a>
                     }
+                    else if (CanDownloadArchiveSelection)
+                    {
+                        <button class="btn btn-outline-secondary" type="button" @onclick="DownloadArchiveSelectedAsync"
+                                disabled="@(_archiveBusy || _loading)">
+                            @L["Скачать"]
+                        </button>
+                    }
                     else
                     {
-                        <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
+                        <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1"
+                           title="@ArchiveUnavailableHint">@L["Скачать"]</a>
                     }
-                    <button class="btn btn-outline-secondary" type="button" @onclick="DownloadArchiveSelectedAsync"
-                            disabled="@(!CanStartTask || _archiveBusy || _loading || IsArchiveUnavailable)"
-                            title="@ArchiveUnavailableHint">
-                        @L["Скачать ZIP"]
-                    </button>
                     <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
                             disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootView)"
                             title="@VirtualRootReadOnlyHint">
@@ -303,7 +306,7 @@
             }
             else if (_contextEntry.Kind == "directory")
             {
-                <button type="button" role="menuitem" @onclick="() => DownloadArchiveAsync([_contextEntry!])">@L["Скачать ZIP"]</button>
+                <button type="button" role="menuitem" @onclick="() => DownloadArchiveAsync([_contextEntry!])">@L["Скачать"]</button>
             }
             <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
             <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">@L["Копировать"]</button>
@@ -481,6 +484,15 @@
 
     private string? SelectedFileDownloadUrl =>
         SelectedEntry is { Kind: "file" } entry ? GetDownloadUrl(entry) : null;
+
+    /// <summary>
+    /// Единая кнопка «Скачать» (SPEC §9.4): ровно один файл скачивается
+    /// напрямую, папка или набор объектов — одним архивом (§12.2).
+    /// Недоступно без выделения и при выделении нескольких корней
+    /// в узле «Все корни».
+    /// </summary>
+    private bool CanDownloadArchiveSelection =>
+        SelectedEntries.Count > 0 && !IsArchiveUnavailable;
 
     private string GetDownloadUrl(FileEntryDto entry)
     {
@@ -810,7 +822,11 @@
     /// </summary>
     private async Task DownloadArchiveAsync(IReadOnlyList<FileEntryDto> entries)
     {
-        if (_listing is null || entries.Count == 0 || _archiveBusy || IsArchiveUnavailable)
+        if (_listing is null
+            || entries.Count == 0
+            || entries is [{ Kind: "file" }]
+            || _archiveBusy
+            || IsArchiveUnavailable)
         {
             return;
         }
