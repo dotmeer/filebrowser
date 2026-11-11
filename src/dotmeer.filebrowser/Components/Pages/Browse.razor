@@ -254,7 +254,7 @@
                                         }
                                         else
                                         {
-                                            <span><span aria-hidden="true">📄</span> @entry.Name</span>
+                                            <span @ondblclick="() => OpenPreviewIfSupported(entry)"><span aria-hidden="true">📄</span> @entry.Name</span>
                                         }
                                     </td>
                                     <td>@GetKindLabel(entry.Kind)</td>
@@ -277,6 +277,10 @@
         <div class="file-context-menu" role="menu" style="@($"left: {_contextX}px; top: {_contextY}px;")">
             @if (_contextEntry.Kind == "file")
             {
+                @if (PreviewCatalog.Find(_contextEntry.Name) is not null)
+                {
+                    <button type="button" role="menuitem" @onclick="() => OpenPreview(_contextEntry!)">@L["Предпросмотр"]</button>
+                }
                 <a class="context-menu-link" href="@GetDownloadUrl(_contextEntry)" download role="menuitem">@L["Скачать"]</a>
             }
             <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
@@ -345,6 +349,12 @@
                            Sources="@_taskSources" Busy="@_taskBusy" Error="@_taskError"
                            OnConfirm="EnqueueTaskAsync" OnCancel="CloseTaskDialog" />
     }
+
+    @if (_previewEntry is not null && _listing is not null)
+    {
+        <PreviewModal Entry="@_previewEntry" Root="@_listing.Root"
+                      DownloadUrl="@GetDownloadUrl(_previewEntry)" OnClose="ClosePreviewAsync" />
+    }
 </section>
 
 @code {
@@ -381,6 +391,7 @@
     private double _contextX;
     private double _contextY;
     private FileTaskType? _taskType;
+    private FileEntryDto? _previewEntry;
     private IReadOnlyList<FileRef> _taskSources = [];
     private bool _taskBusy;
     private string? _taskError;
@@ -424,6 +435,28 @@
         return QueryHelpers.AddQueryString("/api/fs/download", query);
     }
 
+    /// <summary>
+    /// Открывает предпросмотр (модально), если тип файла входит в серверный
+    /// whitelist расширений (SPEC §16); иначе no-op.
+    /// </summary>
+    private Task OpenPreviewIfSupported(FileEntryDto entry) =>
+        entry.Kind == "file" && PreviewCatalog.Find(entry.Name) is not null
+            ? OpenPreview(entry)
+            : Task.CompletedTask;
+
+    private Task OpenPreview(FileEntryDto entry)
+    {
+        _contextEntry = null;
+        _previewEntry = entry;
+        return Task.CompletedTask;
+    }
+
+    private Task ClosePreviewAsync()
+    {
+        _previewEntry = null;
+        return Task.CompletedTask;
+    }
+
     protected override Task OnParametersSetAsync() => LoadCurrentAsync();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -449,6 +482,7 @@
         _rootsLoading = true;
         _error = null;
         _selection.Clear();
+        _previewEntry = null;
 
         try
         {

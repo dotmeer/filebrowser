@@ -107,12 +107,13 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Единственные HTTP-эндпоинты после удаления внешнего API: скачивание файла
-// для UI и health-checks для эксплуатации (k8s liveness/readiness).
-// Liveness: приложение отвечает. Readiness: пока совпадает с liveness;
-// при появлении критичной зависимости (например SQLite) сюда добавляется
-// соответствующая проверка.
+// Единственные HTTP-эндпоинты после удаления внешнего API: скачивание
+// файла и предпросмотр для UI (SPEC §16) и health-checks для эксплуатации
+// (k8s liveness/readiness). Liveness: приложение отвечает. Readiness: пока
+// совпадает с liveness; при появлении критичной зависимости (например
+// SQLite) сюда добавляется соответствующая проверка.
 app.MapDownload();
+app.MapPreview();
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
 

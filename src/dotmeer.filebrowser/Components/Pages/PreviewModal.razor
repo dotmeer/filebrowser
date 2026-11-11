@@ -1,0 +1,148 @@
+@using System.Text
+@using Microsoft.AspNetCore.WebUtilities
+@inject IStringLocalizer<SharedResources> L
+@inject IJSRuntime JavaScript
+
+@if (Definition is not null)
+{
+    <div class="dialog-backdrop preview-backdrop" @onclick="CloseAsync">
+        <section class="preview-dialog" role="dialog" aria-modal="true" aria-label="@L["Предпросмотр: {0}", Entry.Name]"
+                tabindex="-1" @ref="_dialogElement" @onkeydown="HandleKeyDownAsync" @onclick:stopPropagation>
+            <header class="preview-header">
+                <h2 class="preview-title" title="@Entry.Name">@Entry.Name</h2>
+                <div class="preview-actions">
+                    <a class="btn btn-outline-secondary" href="@DownloadUrl" download>@L["Скачать"]</a>
+                    <button class="preview-close" type="button" @onclick="CloseAsync"
+                            aria-label="@L["Закрыть предпросмотр"]" title="@L["Закрыть предпросмотр"]">✕</button>
+                </div>
+            </header>
+            <div class="preview-body">
+                @if (Definition.Kind == PreviewKind.Image)
+                {
+                    <img class="preview-image" src="@PreviewUrl" alt="@Entry.Name" />
+                }
+                else if (Definition.Kind == PreviewKind.Pdf)
+                {
+                    <iframe class="preview-frame" src="@PreviewUrl" title="@Entry.Name"></iframe>
+                }
+                else if (_textFailed)
+                {
+                    <p class="dialog-error" role="alert">@L["Не удалось загрузить предпросмотр."]</p>
+                }
+                else if (_textLoading)
+                {
+                    <p class="preview-loading" role="status">@L["Загрузка предпросмотра…"]</p>
+                }
+                else
+                {
+                    @if (_truncated)
+                    {
+                        <p class="preview-truncated" role="status">@L["Показано только начало файла."]</p>
+                    }
+                    <pre class="preview-text">@_text</pre>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// Предпросматриваемый файл. Определяет вид предпросмотра через
+    /// серверный whitelist расширений (<see cref="PreviewCatalog"/>):
+    /// компонент не рендерится для неподдерживаемых типов.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public FileEntryDto Entry { get; set; } = null!;
+
+    /// <summary>Корень текущего листинга (может быть виртуальным AllRoots).</summary>
+    [Parameter, EditorRequired]
+    public string Root { get; set; } = null!;
+
+    /// <summary>URL скачивания для кнопки «Скачать» (существующий эндпоинт download).</summary>
+    [Parameter, EditorRequired]
+    public string DownloadUrl { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public EventCallback OnClose { get; set; }
+
+    private ElementReference _dialogElement;
+    private bool _textLoading = true;
+    private bool _textFailed;
+    private bool _truncated;
+    private string? _text;
+
+    private PreviewDefinition? Definition => PreviewCatalog.Find(Entry.Name);
+
+    private string PreviewUrl => QueryHelpers.AddQueryString("/api/fs/preview", new Dictionary<string, string?>
+    {
+        ["root"] = Root,
+        ["path"] = Entry.Path
+    });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dialogElement.FocusAsync();
+            if (Definition?.Kind == PreviewKind.Text)
+            {
+                // Байты файла идут браузер → сервер → браузер через fetch,
+                // через Blazor circuit не проходят (§15). Текст передаётся
+                // в .NET чанками: результат целиком (до 512 КиБ) превышает
+                // потолок сообщения SignalR и обрывает circuit.
+                var meta = await JavaScript.InvokeAsync<PreviewTextMeta>("fileBrowser.fetchPreviewText", PreviewUrl);
+                if (meta.Ok)
+                {
+                    var builder = new StringBuilder(meta.Length);
+                    for (var i = 0; i < meta.ChunkCount; i++)
+                    {
+                        builder.Append(await JavaScript.InvokeAsync<string>("fileBrowser.getPreviewTextChunk", i));
+                    }
+
+                    _text = builder.ToString();
+                    _truncated = meta.Truncated;
+                }
+                else
+                {
+                    _textFailed = true;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is JSDisconnectedException or TaskCanceledException)
+        {
+            // Потеряна связь с браузером: после reconnect компонент пересоздастся.
+            _textFailed = true;
+        }
+        finally
+        {
+            _textLoading = false;
+            try
+            {
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Модалку закрыли, пока текст ещё загружался.
+            }
+        }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private Task HandleKeyDownAsync(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? OnClose.InvokeAsync() : Task.CompletedTask;
+
+    private sealed class PreviewTextMeta
+    {
+        public bool Ok { get; set; }
+        public int Length { get; set; }
+        public int ChunkCount { get; set; }
+        public bool Truncated { get; set; }
+    }
+}

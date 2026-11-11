@@ -31,6 +31,8 @@
   <data name="Error_UnsupportedObject_Detail" xml:space="preserve"><value>Этот тип файловой системы не поддерживается.</value></data>
   <data name="Error_Internal_Title" xml:space="preserve"><value>Внутренняя ошибка</value></data>
   <data name="Error_Internal_Detail" xml:space="preserve"><value>Не удалось выполнить запрос.</value></data>
+  <data name="Error_PreviewNotSupported_Title" xml:space="preserve"><value>Предпросмотр не поддерживается</value></data>
+  <data name="Error_PreviewNotSupported_Detail" xml:space="preserve"><value>Этот тип файла нельзя предпросмотреть.</value></data>
   <data name="Файлы" xml:space="preserve"><value>Файлы</value></data>
   <data name="Файловый менеджер" xml:space="preserve"><value>Файловый менеджер</value></data>
   <data name="Дерево каталогов" xml:space="preserve"><value>Дерево каталогов</value></data>
@@ -194,4 +196,10 @@
   <data name="Все корни" xml:space="preserve"><value>Все корни</value></data>
   <data name="В виртуальном корне доступно только чтение" xml:space="preserve"><value>В виртуальном корне доступно только чтение</value></data>
   <data name="Некоторые корни недоступны и не участвовали в поиске: {0}" xml:space="preserve"><value>Некоторые корни недоступны и не участвовали в поиске: {0}</value></data>
+  <data name="Предпросмотр" xml:space="preserve"><value>Предпросмотр</value></data>
+  <data name="Предпросмотр: {0}" xml:space="preserve"><value>Предпросмотр: {0}</value></data>
+  <data name="Закрыть предпросмотр" xml:space="preserve"><value>Закрыть предпросмотр</value></data>
+  <data name="Загрузка предпросмотра…" xml:space="preserve"><value>Загрузка предпросмотра…</value></data>
+  <data name="Не удалось загрузить предпросмотр." xml:space="preserve"><value>Не удалось загрузить предпросмотр.</value></data>
+  <data name="Показано только начало файла." xml:space="preserve"><value>Показано только начало файла.</value></data>
 </root>

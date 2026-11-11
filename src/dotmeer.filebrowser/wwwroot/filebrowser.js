@@ -1,3 +1,6 @@
+const previewTextChunkSize = 16 * 1024;
+let lastPreviewText = "";
+
 window.fileBrowser = {
     formatLocalTimes: () => {
         document.querySelectorAll("time.local-time:not([data-formatted])").forEach((element) => {
@@ -14,6 +17,31 @@ window.fileBrowser = {
         if (row) {
             row.scrollIntoView({ block: "center" });
         }
+    },
+
+    // Текстовый предпросмотр: браузер забирает тело напрямую через fetch,
+    // байты не проходят через Blazor circuit. Передача текста в .NET
+    // выполняется чанками: результат целиком (до 512 КиБ) превышает
+    // потолок сообщения SignalR и обрывает circuit.
+    fetchPreviewText: async (url) => {
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) {
+            lastPreviewText = "";
+            return { ok: false, length: 0, chunkCount: 0, truncated: false };
+        }
+
+        lastPreviewText = await response.text();
+        return {
+            ok: true,
+            length: lastPreviewText.length,
+            chunkCount: Math.ceil(lastPreviewText.length / previewTextChunkSize),
+            truncated: response.headers.get("X-Preview-Truncated") === "true"
+        };
+    },
+
+    getPreviewTextChunk: (index) => {
+        const start = index * previewTextChunkSize;
+        return lastPreviewText.slice(start, start + previewTextChunkSize);
     },
 
     registerReconnectRefresh: (dotNetReference) => {

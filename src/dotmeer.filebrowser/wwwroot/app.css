@@ -577,6 +577,114 @@ h1:focus {
         color: var(--on-error);
     }
 
+/* ===== Предпросмотр ===== */
+/* Модальный просмотрщик (SPEC §9.4): открывается по двойному клику или из
+   контекстного меню; закрывается кнопкой «✕», кликом по фону или ESC. */
+.preview-backdrop {
+    z-index: 40; /* выше контекстного меню (z-index: 20) */
+    cursor: zoom-out;
+}
+
+.preview-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 60rem);
+    max-height: calc(100vh - 4rem);
+    padding: 0.75rem 1rem 1rem;
+    background: var(--surface);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, .25), 0 12px 24px rgba(0, 0, 0, .15);
+    cursor: default;
+    outline: none;
+}
+
+[data-bs-theme="dark"] .preview-dialog {
+    box-shadow: var(--shadow-overlay);
+}
+
+.preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+    .preview-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .preview-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+.preview-close {
+    border: 0;
+    background: transparent;
+    color: var(--on-surface-variant);
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.25rem 0.4rem;
+    cursor: pointer;
+}
+
+    .preview-close:hover, .preview-close:focus {
+        color: var(--on-surface);
+        background: var(--surface-hover);
+    }
+
+.preview-body {
+    display: grid;
+    min-height: 6rem;
+}
+
+.preview-image {
+    justify-self: center;
+    max-width: 100%;
+    max-height: calc(100vh - 13rem);
+    object-fit: contain;
+}
+
+.preview-frame {
+    width: 100%;
+    height: min(72vh, 50rem);
+    border: 1px solid var(--outline-variant);
+    background: var(--surface);
+}
+
+.preview-text {
+    margin: 0;
+    padding: 0.75rem;
+    max-height: calc(100vh - 15rem);
+    overflow: auto;
+    background: var(--surface-variant);
+    border: 1px solid var(--outline-variant);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.preview-loading, .preview-truncated {
+    margin: 0 0 0.5rem;
+}
+
+.preview-loading {
+    color: var(--on-surface-variant);
+}
+
+.preview-truncated {
+    color: var(--warning);
+    font-size: 0.9rem;
+}
+
 /* ===== Прочие страницы ===== */
 .settings-page, .home-page {
     padding: 1rem 1.5rem;
