@@ -1,11 +1,12 @@
 namespace dotmeer.filebrowser.Tasks;
 
-public sealed class FileTaskExecutor(CopyTaskExecutor copyExecutor, MoveTaskExecutor moveExecutor) : IFileTaskExecutor
+public sealed class FileTaskExecutor(CopyTaskExecutor copyExecutor, MoveTaskExecutor moveExecutor, DeleteTaskExecutor deleteExecutor) : IFileTaskExecutor
 {
     public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken) => task.Type switch
     {
         FileTaskType.Copy => copyExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
         FileTaskType.Move => moveExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
+        FileTaskType.Delete => deleteExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
         _ => Task.FromException(new TaskExecutorNotReadyException())
     };
 }

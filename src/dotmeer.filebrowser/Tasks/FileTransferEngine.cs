@@ -445,7 +445,7 @@ internal sealed class TransferProgress(
     TaskProgressService runtimeProgress,
     Guid taskId,
     FileTaskType taskType,
-    long bytesTotal,
+    long? bytesTotal,
     long itemsTotal,
     TaskMetrics? metrics)
 {

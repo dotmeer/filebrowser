@@ -202,4 +202,12 @@
   <data name="Загрузка предпросмотра…" xml:space="preserve"><value>Загрузка предпросмотра…</value></data>
   <data name="Не удалось загрузить предпросмотр." xml:space="preserve"><value>Не удалось загрузить предпросмотр.</value></data>
   <data name="Показано только начало файла." xml:space="preserve"><value>Показано только начало файла.</value></data>
+  <data name="Удаление" xml:space="preserve"><value>Удаление</value></data>
+  <data name="Удалить выбранные объекты ({0})?" xml:space="preserve"><value>Удалить выбранные объекты ({0})?</value></data>
+  <data name="и ещё {0}" xml:space="preserve"><value>и ещё {0}</value></data>
+  <data name="Ошибка удаления." xml:space="preserve"><value>Ошибка удаления.</value></data>
+  <data name="Объект доступен только для чтения: удаление невозможно." xml:space="preserve"><value>Объект доступен только для чтения: удаление невозможно.</value></data>
+  <data name="В выбранном дереве находятся служебные файлы приложения." xml:space="preserve"><value>В выбранном дереве находятся служебные файлы приложения.</value></data>
+  <data name="В выбранном дереве есть временные объекты активных задач." xml:space="preserve"><value>В выбранном дереве есть временные объекты активных задач.</value></data>
+  <data name="Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения." xml:space="preserve"><value>Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения.</value></data>
 </root>

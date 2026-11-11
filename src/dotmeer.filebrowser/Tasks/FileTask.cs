@@ -5,7 +5,8 @@ namespace dotmeer.filebrowser.Tasks;
 public enum FileTaskType
 {
     Copy,
-    Move
+    Move,
+    Delete
 }
 
 public enum FileTaskStatus

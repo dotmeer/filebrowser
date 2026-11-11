@@ -26,8 +26,11 @@
         {
             <code>@Presentation.FormatReference(source)</code>
         }
-        <span aria-hidden="true">→</span>
-        <code>@Presentation.FormatReference(Task.Destination)</code>
+        @if (Task.Type != FileTaskType.Delete)
+        {
+            <span aria-hidden="true">→</span>
+            <code>@Presentation.FormatReference(Task.Destination)</code>
+        }
     </p>
 
     @if (Task.Status == FileTaskStatus.Queued)
@@ -60,9 +63,12 @@
     }
 
     <div class="task-counters">
-        <span>@L["Байты:"] @Presentation.FormatBytes(Task.BytesDone) / @Presentation.FormatBytes(Task.BytesTotal)</span>
+        @if (Task.Type != FileTaskType.Delete)
+        {
+            <span>@L["Байты:"] @Presentation.FormatBytes(Task.BytesDone) / @Presentation.FormatBytes(Task.BytesTotal)</span>
+        }
         <span>@L["Объекты:"] @Task.ItemsDone@(Task.ItemsTotal is null ? string.Empty : $" / {Task.ItemsTotal}")</span>
-        @if (BytesPerSecond > 0)
+        @if (Task.Type != FileTaskType.Delete && BytesPerSecond > 0)
         {
             <span>@L["Скорость:"] @Presentation.FormatSpeed(BytesPerSecond)</span>
         }

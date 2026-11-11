@@ -64,6 +64,9 @@ builder.Services.AddLocalization(options => options.ResourcesPath = "Localizatio
 builder.Services.AddSingleton(new AppSettingsService(taskDatabase));
 builder.Services.AddFileBrowserObservability(builder.Configuration);
 builder.Services.AddSingleton(fileBrowserConfiguration);
+builder.Services.AddSingleton(new ApplicationPaths(
+    Path.GetFullPath(configPath),
+    taskDatabase.DatabasePath));
 builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
 builder.Services.AddSingleton<FileSystemSearchService>();
@@ -81,8 +84,10 @@ builder.Services.AddSingleton<TaskCancellationRegistry>();
 builder.Services.AddSingleton<TaskCancellationService>();
 builder.Services.AddSingleton<TaskPresentation>();
 builder.Services.AddSingleton<FileTransferEngine>();
+builder.Services.AddSingleton<FileDeleteEngine>();
 builder.Services.AddSingleton<CopyTaskExecutor>();
 builder.Services.AddSingleton<MoveTaskExecutor>();
+builder.Services.AddSingleton<DeleteTaskExecutor>();
 builder.Services.AddSingleton<IFileTaskExecutor, FileTaskExecutor>();
 builder.Services.AddHostedService<TaskExecutorHostedService>();
 

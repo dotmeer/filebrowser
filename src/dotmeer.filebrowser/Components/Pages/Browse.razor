@@ -83,7 +83,7 @@
                         <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
                     }
                     <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
-                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootView)"
+                            disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootView)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Удалить"]
                     </button>
@@ -308,9 +308,26 @@
                     <input id="new-name" class="form-control" @bind="_newName" disabled="@_operationInProgress" />
                     <p class="dialog-hint">@L["Объект с таким именем не будет перезаписан."]</p>
                 }
-                else if (_dialog == DialogKind.Delete && _dialogTarget is not null)
+                else if (_dialog == DialogKind.Delete && _deleteTargets.Count > 0)
                 {
-                    <h2 id="file-dialog-title">@L["Удалить «{0}»?", _dialogTarget.Name]</h2>
+                    @if (_dialogTarget is not null)
+                    {
+                        <h2 id="file-dialog-title">@L["Удалить «{0}»?", _dialogTarget.Name]</h2>
+                    }
+                    else
+                    {
+                        <h2 id="file-dialog-title">@L["Удалить выбранные объекты ({0})?", _deleteTargets.Count]</h2>
+                        <ul class="dialog-list">
+                            @foreach (var target in _deleteTargets.Take(5))
+                            {
+                                <li><code>@target.Name</code></li>
+                            }
+                            @if (_deleteTargets.Count > 5)
+                            {
+                                <li>@L["и ещё {0}", _deleteTargets.Count - 5]</li>
+                            }
+                        </ul>
+                    }
                     <p class="dialog-warning">@L["Удаление безвозвратное. Каталог будет удалён вместе со всем содержимым."]</p>
                     <div class="form-check">
                         <input id="confirm-delete" class="form-check-input" type="checkbox" @bind="_deleteConfirmed" disabled="@_operationInProgress" />
@@ -382,6 +399,7 @@
     private int _requestVersion;
     private FileEntryDto? _contextEntry;
     private FileEntryDto? _dialogTarget;
+    private IReadOnlyList<FileEntryDto> _deleteTargets = [];
     private DialogKind? _dialog;
     private string _newFolderName = string.Empty;
     private string _newName = string.Empty;
@@ -636,16 +654,25 @@
 
     private void OpenDeleteSelected()
     {
-        if (SelectedEntry is not null)
+        var entries = SelectedEntries;
+        if (entries.Count == 0)
         {
-            OpenDelete(SelectedEntry);
+            return;
         }
+
+        _contextEntry = null;
+        _dialog = DialogKind.Delete;
+        _deleteTargets = entries;
+        _dialogTarget = entries.Count == 1 ? entries[0] : null;
+        _deleteConfirmed = false;
+        _operationError = null;
     }
 
     private void OpenDelete(FileEntryDto entry)
     {
         _contextEntry = null;
         _dialog = DialogKind.Delete;
+        _deleteTargets = [entry];
         _dialogTarget = entry;
         _deleteConfirmed = false;
         _operationError = null;
@@ -660,6 +687,7 @@
 
         _dialog = null;
         _dialogTarget = null;
+        _deleteTargets = [];
         _operationError = null;
     }
 
@@ -755,13 +783,34 @@
 
     private async Task DeleteAsync()
     {
-        if (_listing is null || _dialogTarget is null || !_deleteConfirmed)
+        if (_listing is null || _deleteTargets.Count == 0 || !_deleteConfirmed)
         {
             return;
         }
 
-        var source = new FileRef(_listing.Root, _dialogTarget.Path);
-        await ExecuteMutationAsync(() => Writer.Delete(source));
+        // Удаление (один объект или несколько) выполняется фоновой задачей
+        // (SPEC §13.9): предпроверка, частичный результат и отмена доступны
+        // независимо от состояния circuit. Все выбранные объекты — дети
+        // текущей папки, поэтому она же передаётся как исходная папка задачи.
+        var sources = _deleteTargets.Select(entry => new FileRef(_listing.Root, entry.Path)).ToArray();
+        var sourceFolder = new FileRef(_listing.Root, _listing.Path);
+        _operationInProgress = true;
+        _operationError = null;
+        try
+        {
+            await Task.Run(async () => await Dispatcher.EnqueueAsync(FileTaskType.Delete, sources, sourceFolder));
+            _operationInProgress = false;
+            _selection.Clear();
+            CloseDialog();
+        }
+        catch (Exception exception)
+        {
+            _operationError = GetSafeTaskError(exception);
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
     }
 
     private async Task ExecuteMutationAsync(Action mutation)

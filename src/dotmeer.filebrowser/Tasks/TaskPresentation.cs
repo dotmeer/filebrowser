@@ -15,6 +15,16 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
             return 100;
         }
 
+        if (task.Type == FileTaskType.Delete)
+        {
+            if (task.Status != FileTaskStatus.Running || task.ItemsTotal is not > 0)
+            {
+                return null;
+            }
+
+            return (int)Math.Clamp(task.ItemsDone * 100.0 / task.ItemsTotal.Value, 0, 100);
+        }
+
         if (task.Status != FileTaskStatus.Running || task.BytesTotal is not > 0)
         {
             return null;
@@ -86,6 +96,7 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
     {
         FileTaskType.Copy => localizer["Копирование"],
         FileTaskType.Move => localizer["Перемещение"],
+        FileTaskType.Delete => localizer["Удаление"],
         _ => type.ToString()
     };
 
@@ -123,15 +134,22 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskErrorCodes.SkippedAfterError => localizer["Не обработан после ошибки предыдущего объекта."],
         FileTaskErrorCodes.OperationFailed => localizer["Файловая операция не выполнена."],
         FileTaskErrorCodes.OperationAccessDenied => localizer["Нет доступа."],
-        FileTaskErrorCodes.IoError => taskType == FileTaskType.Move
-            ? localizer["Ошибка перемещения."]
-            : localizer["Ошибка копирования."],
+        FileTaskErrorCodes.IoError => taskType switch
+        {
+            FileTaskType.Move => localizer["Ошибка перемещения."],
+            FileTaskType.Delete => localizer["Ошибка удаления."],
+            _ => localizer["Ошибка копирования."]
+        },
         FileTaskErrorCodes.MoveSourceNotDeleted => localizer["Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично."],
         FileTaskErrorCodes.ExecutorFailed => localizer["Исполнитель задачи завершился ошибкой."],
         FileTaskErrorCodes.TaskInterruptedRestart => localizer["Задача прервана перезапуском приложения."],
         FileTaskErrorCodes.CancelledByUser => localizer["Задача отменена пользователем."],
         FileTaskErrorCodes.SkippedAfterCancel => localizer["Не обработан: задача отменена."],
         FileTaskErrorCodes.InsufficientSpace => localizer["Недостаточно свободного места в каталоге назначения."],
+        FileTaskErrorCodes.ReadOnlyObject => localizer["Объект доступен только для чтения: удаление невозможно."],
+        FileTaskErrorCodes.ServiceFileProtected => localizer["В выбранном дереве находятся служебные файлы приложения."],
+        FileTaskErrorCodes.ArtifactInUse => localizer["В выбранном дереве есть временные объекты активных задач."],
+        FileTaskErrorCodes.DeleteIncomplete => localizer["Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения."],
         _ => error
     };
 

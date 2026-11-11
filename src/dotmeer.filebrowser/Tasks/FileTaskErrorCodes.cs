@@ -31,4 +31,8 @@ public static class FileTaskErrorCodes
     public const string CancelledByUser = "cancelled_by_user";
     public const string SkippedAfterCancel = "skipped_after_cancel";
     public const string InsufficientSpace = "insufficient_space";
+    public const string ReadOnlyObject = "read_only_object";
+    public const string ServiceFileProtected = "service_file_protected";
+    public const string ArtifactInUse = "artifact_in_use";
+    public const string DeleteIncomplete = "delete_incomplete";
 }
