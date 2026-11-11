@@ -898,6 +898,10 @@ h1:focus {
     font-size: 0.9rem;
 }
 
+.task-note-error {
+    color: var(--danger, #b3261e);
+}
+
 .browse-page > .task-note {
     padding: 0.5rem 1rem 0;
 }

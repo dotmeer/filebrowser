@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using dotmeer.filebrowser.Archive;
 using dotmeer.filebrowser.Components;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.Endpoints;
@@ -71,6 +72,10 @@ builder.Services.AddSingleton<PathResolver>();
 builder.Services.AddSingleton<FileSystemReadService>();
 builder.Services.AddSingleton<FileSystemSearchService>();
 builder.Services.AddSingleton<SearchMetrics>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<ArchiveTicketStore>();
+builder.Services.AddSingleton<FileSystemArchiveService>();
+builder.Services.AddSingleton<ArchiveMetrics>();
 builder.Services.AddSingleton<FileSystemWriteService>();
 builder.Services.AddSingleton(taskDatabase);
 builder.Services.AddSingleton<TaskNotificationService>();
@@ -119,6 +124,7 @@ app.MapRazorComponents<App>()
 // SQLite) сюда добавляется соответствующая проверка.
 app.MapDownload();
 app.MapPreview();
+app.MapArchive();
 app.MapHealthChecks("/health/live");
 app.MapHealthChecks("/health/ready");
 

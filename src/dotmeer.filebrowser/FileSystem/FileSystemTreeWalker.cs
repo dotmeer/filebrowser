@@ -4,7 +4,8 @@ internal static class FileSystemTreeWalker
 {
     public static IEnumerable<FileSystemTreeNode> EnumerateValidated(
         string rootPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, bool>? shouldDescend = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
 
@@ -20,7 +21,7 @@ internal static class FileSystemTreeWalker
                 var isDirectory = Directory.Exists(currentPath);
                 yield return new FileSystemTreeNode(currentPath, isDirectory);
 
-                if (isDirectory)
+                if (isDirectory && (shouldDescend is null || shouldDescend(currentPath)))
                 {
                     enumerators.Push(Directory.EnumerateFileSystemEntries(currentPath).GetEnumerator());
                 }

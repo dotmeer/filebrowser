@@ -2,10 +2,13 @@
 @rendermode InteractiveServer
 @using System.Globalization
 @using Microsoft.AspNetCore.WebUtilities
+@using dotmeer.filebrowser.Archive
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
 @inject FileSystemSearchService SearchService
 @inject FileSystemWriteService Writer
+@inject FileSystemArchiveService ArchiveService
+@inject ArchiveTicketStore ArchiveTickets
 @inject TaskDispatcher Dispatcher
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
@@ -17,6 +20,16 @@
     @if (_taskStatus is not null)
     {
         <p class="task-note" role="status">@_taskStatus</p>
+    }
+
+    @if (_archiveStatus is not null)
+    {
+        <p class="task-note" role="status">@_archiveStatus</p>
+    }
+
+    @if (_archiveError is not null)
+    {
+        <p class="task-note task-note-error" role="alert">@_archiveError</p>
     }
 
     <div class="browse-layout">
@@ -82,6 +95,11 @@
                     {
                         <a class="btn btn-outline-secondary disabled" aria-disabled="true" tabindex="-1">@L["Скачать"]</a>
                     }
+                    <button class="btn btn-outline-secondary" type="button" @onclick="DownloadArchiveSelectedAsync"
+                            disabled="@(!CanStartTask || _archiveBusy || _loading || IsArchiveUnavailable)"
+                            title="@ArchiveUnavailableHint">
+                        @L["Скачать ZIP"]
+                    </button>
                     <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
                             disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootView)"
                             title="@VirtualRootReadOnlyHint">
@@ -283,6 +301,10 @@
                 }
                 <a class="context-menu-link" href="@GetDownloadUrl(_contextEntry)" download role="menuitem">@L["Скачать"]</a>
             }
+            else if (_contextEntry.Kind == "directory")
+            {
+                <button type="button" role="menuitem" @onclick="() => DownloadArchiveAsync([_contextEntry!])">@L["Скачать ZIP"]</button>
+            }
             <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
             <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">@L["Копировать"]</button>
             <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">@L["Переместить"]</button>
@@ -414,6 +436,9 @@
     private bool _taskBusy;
     private string? _taskError;
     private string? _taskStatus;
+    private bool _archiveBusy;
+    private string? _archiveStatus;
+    private string? _archiveError;
 
     private IReadOnlyList<FileEntryDto> SelectedEntries =>
         _listing is null
@@ -439,6 +464,20 @@
     /// </summary>
     private string? VirtualRootReadOnlyHint =>
         IsVirtualRootView ? (string?)L["В виртуальном корне доступно только чтение"] : null;
+
+    /// <summary>
+    /// Архив недоступен только в списке «Все корни» при выделении нескольких
+    /// корней: общей родительской папки у них нет. Один корень скачивается
+    /// архивом, а внутри корня путь делегируется реальному корню (SPEC §12.2).
+    /// </summary>
+    private bool IsArchiveUnavailable =>
+        IsVirtualRootView
+        && string.IsNullOrEmpty(_listing?.Path)
+        && SelectedEntries is not [ { Kind: "directory" } ]
+        && SelectedEntries.Count > 0;
+
+    private string? ArchiveUnavailableHint =>
+        IsArchiveUnavailable ? (string?)L["Нельзя скачать все корни одним архивом"] : null;
 
     private string? SelectedFileDownloadUrl =>
         SelectedEntry is { Kind: "file" } entry ? GetDownloadUrl(entry) : null;
@@ -760,6 +799,48 @@
         return LoadCurrentAsync();
     }
 
+    private Task DownloadArchiveSelectedAsync() => DownloadArchiveAsync(SelectedEntries);
+
+    /// <summary>
+    /// Скачивание папки или набора объектов одним архивом (SPEC §12.2).
+    /// Предпроверка выполняется до навигации (U1): ошибка показывается
+    /// в интерфейсе, а не заменяет страницу JSON-документом. Байты
+    /// архива браузер забирает отдельным HTTP-запросом по тикету;
+    /// через Blazor circuit они не идут.
+    /// </summary>
+    private async Task DownloadArchiveAsync(IReadOnlyList<FileEntryDto> entries)
+    {
+        if (_listing is null || entries.Count == 0 || _archiveBusy || IsArchiveUnavailable)
+        {
+            return;
+        }
+
+        _contextEntry = null;
+        _archiveBusy = true;
+        _archiveError = null;
+        _archiveStatus = L["Подготовка архива…"];
+
+        var root = _listing.Root;
+        var basePath = _listing.Path;
+        var names = entries.Select(entry => entry.Name).ToArray();
+        try
+        {
+            await Task.Run(() => ArchiveService.Plan(new FileRef(root, basePath), names, CancellationToken.None));
+            var ticket = ArchiveTickets.Create(new ArchiveSelection(root, basePath, names));
+            _archiveStatus = null;
+            Navigation.NavigateTo($"/api/fs/zip?ticket={Uri.EscapeDataString(ticket)}", forceLoad: true);
+        }
+        catch (Exception exception)
+        {
+            _archiveError = GetSafeArchiveError(exception);
+            _archiveStatus = null;
+        }
+        finally
+        {
+            _archiveBusy = false;
+        }
+    }
+
     private async Task CreateDirectoryAsync()
     {
         if (_listing is null)
@@ -952,6 +1033,19 @@
         FileSystemResolutionException => L["Не удалось открыть выбранный объект или папку назначения."],
         ArgumentException => L["Проверьте выбранные объекты и папку назначения."],
         _ => L["Не удалось поставить задачу. Повторите попытку."]
+    };
+
+    private string GetSafeArchiveError(Exception exception) => exception switch
+    {
+        ArchiveLimitExceededException => L["Набор слишком большой для скачивания одним архивом."],
+        ArchiveScanTimeoutException => L["Не удалось проверить выбранные объекты за отведённое время."],
+        ArchiveBusyException => L["Сейчас формируются другие архивы. Повторите попытку позже."],
+        FileSystemObjectNotFoundException => L["Выбранные объекты больше не существуют. Обновите каталог."],
+        FileSystemAccessDeniedException => L["Недостаточно прав для чтения выбранных объектов."],
+        UnsupportedFileSystemObjectException => L["В выбранных объектах есть символические ссылки или специальные файлы."],
+        RootUnavailableException => L["Корень временно недоступен."],
+        InvalidFileSystemRequestException => L["Проверьте выбранные объекты."],
+        _ => L["Не удалось подготовить архив. Повторите попытку."]
     };
 
     private sealed record Breadcrumb(string Name, string Path);

@@ -33,6 +33,14 @@
   <data name="Error_Internal_Detail" xml:space="preserve"><value>Не удалось выполнить запрос.</value></data>
   <data name="Error_PreviewNotSupported_Title" xml:space="preserve"><value>Предпросмотр не поддерживается</value></data>
   <data name="Error_PreviewNotSupported_Detail" xml:space="preserve"><value>Этот тип файла нельзя предпросмотреть.</value></data>
+  <data name="Error_ArchiveTooLarge_Title" xml:space="preserve"><value>Архив слишком большой</value></data>
+  <data name="Error_ArchiveTooLarge_Detail" xml:space="preserve"><value>Выбор превышает лимиты одного архива.</value></data>
+  <data name="Error_ArchiveBusy_Title" xml:space="preserve"><value>Формирование архивов занято</value></data>
+  <data name="Error_ArchiveBusy_Detail" xml:space="preserve"><value>Сейчас формируются другие архивы. Повторите попытку позже.</value></data>
+  <data name="Error_ScanTimeout_Title" xml:space="preserve"><value>Проверка архива не уложилась во время</value></data>
+  <data name="Error_ScanTimeout_Detail" xml:space="preserve"><value>Не удалось проверить выбранные объекты за отведённое время.</value></data>
+  <data name="Error_TicketExpired_Title" xml:space="preserve"><value>Ссылка на скачивание устарела</value></data>
+  <data name="Error_TicketExpired_Detail" xml:space="preserve"><value>Подготовьте архив заново из списка файлов.</value></data>
   <data name="Файлы" xml:space="preserve"><value>Файлы</value></data>
   <data name="Файловый менеджер" xml:space="preserve"><value>Файловый менеджер</value></data>
   <data name="Дерево каталогов" xml:space="preserve"><value>Дерево каталогов</value></data>
@@ -45,6 +53,17 @@
   <data name="Копировать" xml:space="preserve"><value>Копировать</value></data>
   <data name="Переместить" xml:space="preserve"><value>Переместить</value></data>
   <data name="Скачать" xml:space="preserve"><value>Скачать</value></data>
+  <data name="Скачать ZIP" xml:space="preserve"><value>Скачать ZIP</value></data>
+  <data name="Подготовка архива…" xml:space="preserve"><value>Подготовка архива…</value></data>
+  <data name="Нельзя скачать все корни одним архивом" xml:space="preserve"><value>Нельзя скачать все корни одним архивом</value></data>
+  <data name="Набор слишком большой для скачивания одним архивом." xml:space="preserve"><value>Набор слишком большой для скачивания одним архивом.</value></data>
+  <data name="Не удалось проверить выбранные объекты за отведённое время." xml:space="preserve"><value>Не удалось проверить выбранные объекты за отведённое время.</value></data>
+  <data name="Сейчас формируются другие архивы. Повторите попытку позже." xml:space="preserve"><value>Сейчас формируются другие архивы. Повторите попытку позже.</value></data>
+  <data name="В выбранных объектах есть символические ссылки или специальные файлы." xml:space="preserve"><value>В выбранных объектах есть символические ссылки или специальные файлы.</value></data>
+  <data name="Недостаточно прав для чтения выбранных объектов." xml:space="preserve"><value>Недостаточно прав для чтения выбранных объектов.</value></data>
+  <data name="Выбранные объекты больше не существуют. Обновите каталог." xml:space="preserve"><value>Выбранные объекты больше не существуют. Обновите каталог.</value></data>
+  <data name="Проверьте выбранные объекты." xml:space="preserve"><value>Проверьте выбранные объекты.</value></data>
+  <data name="Не удалось подготовить архив. Повторите попытку." xml:space="preserve"><value>Не удалось подготовить архив. Повторите попытку.</value></data>
   <data name="Удалить" xml:space="preserve"><value>Удалить</value></data>
   <data name="Путь к каталогу" xml:space="preserve"><value>Путь к каталогу</value></data>
   <data name="Загрузка каталога…" xml:space="preserve"><value>Загрузка каталога…</value></data>

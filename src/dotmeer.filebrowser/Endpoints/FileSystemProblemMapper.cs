@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using dotmeer.filebrowser.Archive;
 using dotmeer.filebrowser.FileSystem;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Localization;
@@ -27,6 +28,9 @@ public static class FileSystemProblemMapper
     {
         var (status, code, titleKey, detailKey) = exception switch
         {
+            ArchiveLimitExceededException => (StatusCodes.Status400BadRequest, "archive_too_large", "Error_ArchiveTooLarge_Title", "Error_ArchiveTooLarge_Detail"),
+            ArchiveBusyException => (StatusCodes.Status429TooManyRequests, "archive_busy", "Error_ArchiveBusy_Title", "Error_ArchiveBusy_Detail"),
+            ArchiveScanTimeoutException => (StatusCodes.Status503ServiceUnavailable, "scan_timeout", "Error_ScanTimeout_Title", "Error_ScanTimeout_Detail"),
             RootUnavailableException => (StatusCodes.Status503ServiceUnavailable, "root_unavailable", "Error_RootUnavailable_Title", "Error_RootUnavailable_Detail"),
             FileSystemObjectNotFoundException => (StatusCodes.Status404NotFound, "not_found", "Error_NotFound_Title", "Error_NotFound_Detail"),
             FileSystemAccessDeniedException => (StatusCodes.Status403Forbidden, "access_denied", "Error_AccessDenied_Title", "Error_AccessDenied_Detail"),
