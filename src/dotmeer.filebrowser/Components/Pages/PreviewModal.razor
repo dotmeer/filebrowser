@@ -1,5 +1,5 @@
-@using System.Text
 @using Microsoft.AspNetCore.WebUtilities
+@implements IAsyncDisposable
 @inject IStringLocalizer<SharedResources> L
 @inject IJSRuntime JavaScript
 
@@ -7,7 +7,7 @@
 {
     <div class="dialog-backdrop preview-backdrop" @onclick="CloseAsync">
         <section class="preview-dialog" role="dialog" aria-modal="true" aria-label="@L["Предпросмотр: {0}", Entry.Name]"
-                tabindex="-1" @ref="_dialogElement" @onkeydown="HandleKeyDownAsync" @onclick:stopPropagation>
+                 tabindex="-1" @ref="_dialogElement" @onkeydown="HandleKeyDownAsync" @onclick:stopPropagation>
             <header class="preview-header">
                 <h2 class="preview-title" title="@Entry.Name">@Entry.Name</h2>
                 <div class="preview-actions">
@@ -29,17 +29,17 @@
                 {
                     <p class="dialog-error" role="alert">@L["Не удалось загрузить предпросмотр."]</p>
                 }
-                else if (_textLoading)
-                {
-                    <p class="preview-loading" role="status">@L["Загрузка предпросмотра…"]</p>
-                }
                 else
                 {
                     @if (_truncated)
                     {
                         <p class="preview-truncated" role="status">@L["Показано только начало файла."]</p>
                     }
-                    <pre class="preview-text">@_text</pre>
+                    @if (_textLoading)
+                    {
+                        <p class="preview-loading" role="status">@L["Загрузка предпросмотра…"]</p>
+                    }
+                    <div class="preview-text-host" @ref="_textHostElement"></div>
                 }
             </div>
         </section>
@@ -67,10 +67,14 @@
     public EventCallback OnClose { get; set; }
 
     private ElementReference _dialogElement;
+    private ElementReference _textHostElement;
     private bool _textLoading = true;
     private bool _textFailed;
     private bool _truncated;
-    private string? _text;
+    private bool _needsTextLoad = true;
+    private bool _disposed;
+    private int _requestVersion;
+    private string? _loadedKey;
 
     private PreviewDefinition? Definition => PreviewCatalog.Find(Entry.Name);
 
@@ -80,55 +84,86 @@
         ["path"] = Entry.Path
     });
 
+    protected override void OnParametersSet()
+    {
+        var key = $"{Root}\0{Entry.Path}";
+        if (_loadedKey is not null && !string.Equals(_loadedKey, key, StringComparison.Ordinal))
+        {
+            _requestVersion++;
+            _needsTextLoad = true;
+            _textLoading = true;
+            _textFailed = false;
+            _truncated = false;
+        }
+
+        _loadedKey = key;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (firstRender)
         {
+            try
+            {
+                await _dialogElement.FocusAsync();
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException)
+            {
+            }
+        }
+
+        if (_needsTextLoad)
+        {
+            _needsTextLoad = false;
+            await LoadTextAsync();
+        }
+    }
+
+    private async Task LoadTextAsync()
+    {
+        if (Definition?.Kind != PreviewKind.Text)
+        {
+            _textLoading = false;
             return;
         }
 
+        var requestId = ++_requestVersion;
         try
         {
-            await _dialogElement.FocusAsync();
-            if (Definition?.Kind == PreviewKind.Text)
+            // Текст остаётся в DOM; в .NET приходят только метаданные.
+            var meta = await JavaScript.InvokeAsync<PreviewTextMeta>(
+                "fileBrowser.renderPreviewText",
+                _textHostElement,
+                PreviewUrl,
+                requestId);
+            if (_disposed || requestId != _requestVersion)
             {
-                // Байты файла идут браузер → сервер → браузер через fetch,
-                // через Blazor circuit не проходят (§15). Текст передаётся
-                // в .NET чанками: результат целиком (до 512 КиБ) превышает
-                // потолок сообщения SignalR и обрывает circuit.
-                var meta = await JavaScript.InvokeAsync<PreviewTextMeta>("fileBrowser.fetchPreviewText", PreviewUrl);
-                if (meta.Ok)
-                {
-                    var builder = new StringBuilder(meta.Length);
-                    for (var i = 0; i < meta.ChunkCount; i++)
-                    {
-                        builder.Append(await JavaScript.InvokeAsync<string>("fileBrowser.getPreviewTextChunk", i));
-                    }
-
-                    _text = builder.ToString();
-                    _truncated = meta.Truncated;
-                }
-                else
-                {
-                    _textFailed = true;
-                }
+                return;
             }
+
+            _truncated = meta.Truncated;
+            _textFailed = !meta.Ok && !meta.Obsolete;
         }
-        catch (Exception exception) when (exception is JSDisconnectedException or TaskCanceledException)
+        catch (Exception exception) when (exception is JSDisconnectedException or TaskCanceledException or ObjectDisposedException)
         {
-            // Потеряна связь с браузером: после reconnect компонент пересоздастся.
-            _textFailed = true;
+            if (!_disposed)
+            {
+                _textFailed = true;
+            }
         }
         finally
         {
-            _textLoading = false;
-            try
+            if (!_disposed && requestId == _requestVersion)
             {
-                StateHasChanged();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Модалку закрыли, пока текст ещё загружался.
+                _textLoading = false;
+                try
+                {
+                    StateHasChanged();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Модалку закрыли, пока текст ещё загружался.
+                }
             }
         }
     }
@@ -138,11 +173,29 @@
     private Task HandleKeyDownAsync(KeyboardEventArgs args) =>
         args.Key == "Escape" ? OnClose.InvokeAsync() : Task.CompletedTask;
 
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _requestVersion++;
+        try
+        {
+            await JavaScript.InvokeVoidAsync("fileBrowser.clearPreviewText", _textHostElement);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or JSDisconnectedException or ObjectDisposedException)
+        {
+            // Модалка уже удалена вместе с circuit.
+        }
+    }
+
     private sealed class PreviewTextMeta
     {
         public bool Ok { get; set; }
-        public int Length { get; set; }
-        public int ChunkCount { get; set; }
         public bool Truncated { get; set; }
+        public bool Obsolete { get; set; }
     }
 }

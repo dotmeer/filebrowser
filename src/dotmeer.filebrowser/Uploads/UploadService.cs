@@ -2,6 +2,8 @@ using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
 using dotmeer.filebrowser.Tasks;
+using System.Buffers;
+using System.IO.Pipelines;
 
 namespace dotmeer.filebrowser.Uploads;
 
@@ -17,10 +19,14 @@ public sealed class UploadService(
     TaskRepository repository,
     TaskProgressService runtimeProgress,
     FileBrowserConfiguration configuration,
+    TaskOperationGate operationGate,
     UploadMetrics? metrics = null)
 {
     private const int BufferSize = 128 * 1024;
     private const int ArtifactNameAttempts = 10;
+
+    internal Func<UploadPublishCheckpoint, Task>? PublishCheckpointAsync { get; set; }
+    internal TaskOperationGate OperationGate => operationGate;
 
     /// <summary>
     /// Проверяет имя, родительский каталог, конфликт имени, лимит размера
@@ -65,7 +71,7 @@ public sealed class UploadService(
     /// Создаёт задачу <c>upload</c> в состоянии scanning и регистрирует
     /// временный артефакт до его появления на диске (SPEC §13.5).
     /// </summary>
-    public async Task<UploadSession> StartAsync(UploadPreflight preflight, CancellationToken cancellationToken)
+    public async Task<UploadSession> StartAsync(UploadPreflight preflight, CancellationToken cancellationToken, Guid? taskId = null)
     {
         ArgumentNullException.ThrowIfNull(preflight);
         if (preflight.ContentLength is null)
@@ -81,7 +87,8 @@ public sealed class UploadService(
             "scanning",
             preflight.ContentLength,
             1,
-            cancellationToken);
+            cancellationToken,
+            taskId);
 
         try
         {
@@ -106,7 +113,7 @@ public sealed class UploadService(
                         cancellationToken);
                     return new UploadSession(task.Id, preflight, physicalPath, artifact.Id);
                 }
-                catch (Exception exception) when (exception.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+                catch (Microsoft.Data.Sqlite.SqliteException exception) when (SqliteErrors.IsUniqueConstraint(exception))
                 {
                     // Совпадение случайного имени безвредно: выберем другое.
                 }
@@ -125,7 +132,35 @@ public sealed class UploadService(
     /// Потоково принимает тело запроса. Промежуточный прогресс сохраняется
     /// не чаще раза в секунду (SPEC §13.6).
     /// </summary>
-    public async Task<long> ReceiveAsync(UploadSession session, Stream body, CancellationToken cancellationToken)
+    public async Task<long> ReceiveAsync(
+        UploadSession session,
+        Stream body,
+        CancellationToken cancellationToken,
+        CancellationToken bodyReadCancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(body);
+        var reader = PipeReader.Create(body, new StreamPipeReaderOptions(leaveOpen: true));
+        try
+        {
+            return await ReceiveAsync(session, reader, cancellationToken, bodyReadCancellationToken);
+        }
+        finally
+        {
+            await reader.CompleteAsync();
+        }
+    }
+
+    /// <summary>
+    /// Принимает тело через PipeReader. Пользовательская отмена прерывает
+    /// ожидающее чтение, не отменяя HTTP-запрос; отменённый результат
+    /// продвигается до передачи отмены вызывающему коду.
+    /// </summary>
+    public async Task<long> ReceiveAsync(
+        UploadSession session,
+        PipeReader body,
+        CancellationToken cancellationToken,
+        CancellationToken bodyReadCancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(body);
@@ -142,6 +177,11 @@ public sealed class UploadService(
             BufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 
+        using var cancelPendingRead = cancellationToken.Register(static state =>
+        {
+            ((PipeReader)state!).CancelPendingRead();
+        }, body);
+
         var buffer = new byte[BufferSize];
         var total = 0L;
         var lastPersisted = DateTimeOffset.UtcNow;
@@ -149,26 +189,54 @@ public sealed class UploadService(
 
         while (true)
         {
-            var read = await body.ReadAsync(buffer.AsMemory(), cancellationToken);
-            if (read == 0)
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = await body.ReadAsync(bodyReadCancellationToken);
+            var remaining = result.Buffer;
+            var consumed = result.Buffer.Start;
+            var examined = result.Buffer.End;
+            try
             {
-                break;
+                if (result.IsCanceled)
+                {
+                    examined = consumed;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    bodyReadCancellationToken.ThrowIfCancellationRequested();
+                    continue;
+                }
+
+                while (!remaining.IsEmpty)
+                {
+                    var chunkLength = (int)Math.Min(remaining.Length, buffer.Length);
+                    remaining.Slice(0, chunkLength).CopyTo(buffer);
+                    remaining = remaining.Slice(chunkLength);
+                    consumed = remaining.Start;
+
+                    total += chunkLength;
+                    if (total > maxFileBytes)
+                    {
+                        throw new FileTooLargeException();
+                    }
+
+                    await destination.WriteAsync(buffer.AsMemory(0, chunkLength), cancellationToken);
+                    runtimeProgress.Report(session.TaskId, total);
+
+                    var now = DateTimeOffset.UtcNow;
+                    if (now - lastPersisted >= TimeSpan.FromSeconds(1))
+                    {
+                        await repository.UpdateProgressAsync(session.TaskId, total, expectedLength, 0, 1, cancellationToken);
+                        lastPersisted = now;
+                    }
+                }
+
+                consumed = result.Buffer.End;
+                if (result.IsCompleted)
+                {
+                    break;
+                }
             }
-
-            total += read;
-            if (total > maxFileBytes)
+            finally
             {
-                throw new FileTooLargeException();
-            }
-
-            await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            runtimeProgress.Report(session.TaskId, total);
-
-            var now = DateTimeOffset.UtcNow;
-            if (now - lastPersisted >= TimeSpan.FromSeconds(1))
-            {
-                await repository.UpdateProgressAsync(session.TaskId, total, expectedLength, 0, 1, cancellationToken);
-                lastPersisted = now;
+                body.AdvanceTo(consumed, examined);
             }
         }
 
@@ -184,79 +252,82 @@ public sealed class UploadService(
     }
 
     /// <summary>
-    /// Публикует временный файл под конечным именем без перезаписи.
-    /// Секция «публикация → снятие регистрации → фиксация» отменой не
-    /// прерывается (та же модель, что у copy/move, SPEC §13.4).
+    /// Публикует временный файл без перезаписи. Отмена, первой вошедшая
+    /// в критическую секцию, не допускает финальный файл; если публикация
+    /// уже произошла, файл и успешный элемент сохраняются.
     /// </summary>
-    public async Task PublishAsync(UploadSession session, long bytes, CancellationToken cancellationToken)
+    public async Task<UploadPublishOutcome> PublishAsync(UploadSession session, long bytes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
 
+        if (PublishCheckpointAsync is not null)
+        {
+            await PublishCheckpointAsync(UploadPublishCheckpoint.BeforeFileMove);
+        }
+
+        using (await operationGate.EnterAsync(session.TaskId, CancellationToken.None))
+        {
+            var current = await repository.GetAsync(session.TaskId, CancellationToken.None);
+            if (current is null
+                || current.Status is FileTaskStatus.Cancelling or FileTaskStatus.Cancelled)
+            {
+                // Отмена, первой вошедшая в gate, не допускает финальный файл.
+                await AbortAsync(session, UploadAbortReason.UserCancelled, FileTaskErrorCodes.CancelledByUser);
+                return UploadPublishOutcome.Cancelled;
+            }
+
+            try
+            {
+                File.Move(session.TemporaryPhysicalPath, session.Preflight.FinalPath.PhysicalPath, overwrite: false);
+            }
+            catch (IOException exception) when (PathInspection.Exists(session.Preflight.FinalPath.PhysicalPath))
+            {
+                throw new FileSystemNameConflictException("Объект с таким именем уже существует.", exception);
+            }
+        }
+
+        if (PublishCheckpointAsync is not null)
+        {
+            await PublishCheckpointAsync(UploadPublishCheckpoint.AfterFileMove);
+        }
+
         try
         {
-            File.Move(session.TemporaryPhysicalPath, session.Preflight.FinalPath.PhysicalPath, overwrite: false);
-        }
-        catch (IOException exception) when (PathInspection.Exists(session.Preflight.FinalPath.PhysicalPath))
-        {
-            throw new FileSystemNameConflictException("Объект с таким именем уже существует.", exception);
-        }
-
-        await repository.RemoveTemporaryArtifactAsync(session.ArtifactId, CancellationToken.None);
-        await repository.UpdateTaskItemAsync(
-            session.TaskId,
-            session.Preflight.Final,
-            "completed",
-            null,
-            1,
-            1,
-            CancellationToken.None);
-
-        var current = await repository.GetAsync(session.TaskId, CancellationToken.None);
-        if (current?.Status == FileTaskStatus.Cancelling)
-        {
-            // Отмена выиграла гонку после фактической публикации: результат
-            // сохраняется, задача фиксируется как отменённая (SPEC §13.8).
-            await TransitionQuietlyAsync(
+            // Состояние публикации и регистрация артефакта меняются одной
+            // короткой транзакцией после File.Move.
+            var outcome = await repository.FinalizePublishedUploadAsync(
                 session.TaskId,
-                FileTaskStatus.Cancelled,
-                "cancelled",
-                FileTaskErrorCodes.CancelledByUser);
-            metrics?.UploadCancelled();
-            return;
+                session.Preflight.Final,
+                session.ArtifactId,
+                CancellationToken.None);
+            switch (outcome)
+            {
+                case UploadFinalizeOutcome.Completed:
+                    metrics?.UploadCompleted(bytes);
+                    return UploadPublishOutcome.Completed;
+                case UploadFinalizeOutcome.Cancelled:
+                    metrics?.UploadCancelled();
+                    return UploadPublishOutcome.Cancelled;
+                default:
+                    throw new InvalidOperationException("Не удалось зафиксировать результат публикации.");
+            }
         }
-
-        await repository.TransitionAsync(
-            session.TaskId,
-            FileTaskStatus.Completed,
-            "completed",
-            cancellationToken: CancellationToken.None);
-        metrics?.UploadCompleted(bytes);
+        catch (Exception exception) when (exception is not FileSystemNameConflictException)
+        {
+            metrics?.UploadFailed();
+            await MarkPublishedFailureQuietlyAsync(session.TaskId);
+            throw new UploadPublishedException(exception);
+        }
     }
 
     /// <summary>
-    /// Удаляет временный файл и фиксирует неуспех. Вызывается на любой
-    /// ошибке, обрыве соединения и отмене. Если временный файл удалить не
-    /// удалось, регистрация сохраняется для очистки при следующем старте.
+    /// Убирает временный артефакт и фиксирует неуспех до публикации.
+    /// Опубликованный элемент не переписывается. Если временный файл удалить
+    /// не удалось, регистрация сохраняется для очистки при следующем старте.
     /// </summary>
     public async Task AbortAsync(UploadSession session, UploadAbortReason reason, string errorCode)
     {
         ArgumentNullException.ThrowIfNull(session);
-
-        var temporaryStillExists = TryDeleteTemporary(session.TemporaryPhysicalPath);
-        if (!temporaryStillExists)
-        {
-            await repository.RemoveTemporaryArtifactAsync(session.ArtifactId, CancellationToken.None);
-        }
-
-        var userCancelled = reason == UploadAbortReason.UserCancelled;
-        await repository.UpdateTaskItemAsync(
-            session.TaskId,
-            session.Preflight.Final,
-            userCancelled ? "not_processed" : "failed",
-            errorCode,
-            0,
-            1,
-            CancellationToken.None);
 
         var current = await repository.GetAsync(session.TaskId, CancellationToken.None);
         if (current is null)
@@ -265,7 +336,36 @@ public sealed class UploadService(
             return;
         }
 
-        if (userCancelled || current.Status == FileTaskStatus.Cancelling)
+        if (current.Status is FileTaskStatus.Completed or FileTaskStatus.Cancelled
+            or FileTaskStatus.Failed or FileTaskStatus.Interrupted)
+        {
+            // Повторная отмена/запоздалый обрыв не меняют уже финальный результат.
+            return;
+        }
+
+        var itemCompleted = current.Items.Any(item =>
+            item.Source == session.Preflight.Final && item.Status == "completed");
+
+        var temporaryStillExists = TryDeleteTemporary(session.TemporaryPhysicalPath);
+        if (!temporaryStillExists)
+        {
+            await repository.RemoveTemporaryArtifactAsync(session.ArtifactId, CancellationToken.None);
+        }
+
+        if (!itemCompleted)
+        {
+            var userCancelled = reason == UploadAbortReason.UserCancelled;
+            await repository.UpdateTaskItemAsync(
+                session.TaskId,
+                session.Preflight.Final,
+                userCancelled ? "not_processed" : "failed",
+                errorCode,
+                0,
+                1,
+                CancellationToken.None);
+        }
+
+        if (reason == UploadAbortReason.UserCancelled || current.Status == FileTaskStatus.Cancelling)
         {
             if (current.Status is FileTaskStatus.Scanning or FileTaskStatus.Running)
             {
@@ -321,6 +421,35 @@ public sealed class UploadService(
         }
     }
 
+    private async Task MarkPublishedFailureQuietlyAsync(Guid taskId)
+    {
+        try
+        {
+            var current = await repository.GetAsync(taskId, CancellationToken.None);
+            var item = current?.Items.FirstOrDefault();
+            if (item is not null && item.Status != "completed")
+            {
+                await repository.UpdateTaskItemAsync(taskId, item.Source, "completed", null, 1, 1, CancellationToken.None);
+            }
+
+            current = await repository.GetAsync(taskId, CancellationToken.None);
+            if (current is not null && FileTaskStateTransitions.IsAllowed(current.Status, FileTaskStatus.Failed))
+            {
+                await repository.TransitionAsync(
+                    taskId,
+                    FileTaskStatus.Failed,
+                    "failed",
+                    FileTaskErrorCodes.IoError,
+                    CancellationToken.None);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // При недоступной SQLite регистрацию оставляем для очистки после
+            // перевода активной задачи в interrupted при следующем запуске.
+        }
+    }
+
     private async Task TransitionQuietlyAsync(Guid taskId, FileTaskStatus status, string stage, string? errorCode)
     {
         var current = await repository.GetAsync(taskId, CancellationToken.None);
@@ -361,13 +490,7 @@ public sealed class UploadService(
         long available;
         try
         {
-            var root = Path.GetPathRoot(parentPhysicalPath);
-            if (string.IsNullOrEmpty(root))
-            {
-                return;
-            }
-
-            available = new DriveInfo(root).AvailableFreeSpace;
+            available = FileSystemVolume.GetAvailableFreeSpace(parentPhysicalPath);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DriveNotFoundException or ArgumentException)
         {
@@ -409,6 +532,25 @@ public enum UploadAbortReason
     ClientDisconnected,
     Error
 }
+
+public enum UploadPublishOutcome
+{
+    Completed,
+    Cancelled
+}
+
+internal enum UploadPublishCheckpoint
+{
+    BeforeFileMove,
+    AfterFileMove
+}
+
+/// <summary>
+/// Файл уже опубликован под конечным именем, но финализация задачи не
+/// удалась. Вызывающий код не должен удалять опубликованный файл.
+/// </summary>
+public sealed class UploadPublishedException(Exception innerException)
+    : Exception("Файл опубликован, но задача не финализирована.", innerException);
 
 public sealed class FileTooLargeException()
     : FileSystemResolutionException("Файл превышает допустимый размер.");

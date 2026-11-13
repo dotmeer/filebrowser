@@ -46,11 +46,13 @@ public sealed class FileSystemReadService
             var info = (attributes & FileAttributes.Directory) != 0
                 ? (FileSystemInfo)new DirectoryInfo(path)
                 : new FileInfo(path);
-            var isSymlink = (attributes & FileAttributes.ReparsePoint) != 0 || info.LinkTarget is not null;
-            var isDevice = (attributes & FileAttributes.Device) != 0;
-            var kind = isSymlink || isDevice
-                ? "unsupported"
-                : (attributes & FileAttributes.Directory) != 0 ? "directory" : "file";
+            var entryKind = PathInspection.Classify(path, attributes);
+            var kind = entryKind switch
+            {
+                FileSystemEntryKind.Directory => "directory",
+                FileSystemEntryKind.RegularFile => "file",
+                _ => "unsupported"
+            };
             var relativePath = string.IsNullOrEmpty(resolved.RelativePath)
                 ? name
                 : $"{resolved.RelativePath}/{name}";

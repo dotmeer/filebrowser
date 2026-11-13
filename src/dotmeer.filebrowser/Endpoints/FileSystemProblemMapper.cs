@@ -10,8 +10,8 @@ namespace dotmeer.filebrowser.Endpoints;
 /// <summary>
 /// Общий маппинг исключений файловых операций в ProblemDetails-контракт
 /// (application/problem+json, стабильные поля code и traceId,
-/// локализованные title/detail, без физических путей). Разделяется
-/// эндпоинтами скачивания и предпросмотра.
+/// локализованные title/detail, без физических путей). Используется
+/// эндпоинтами скачивания, предпросмотра, архива и загрузки.
 /// </summary>
 public static class FileSystemProblemMapper
 {
@@ -19,7 +19,7 @@ public static class FileSystemProblemMapper
     /// Маппит исключение файловой системы в ProblemDetails и пишет
     /// соответствующую запись в лог.
     /// </summary>
-    /// <param name="operation">Название операции для лога: «скачивание» или «предпросмотр».</param>
+    /// <param name="operation">Название операции для лога.</param>
     public static ProblemDetails Create(
         Exception exception,
         HttpContext httpContext,

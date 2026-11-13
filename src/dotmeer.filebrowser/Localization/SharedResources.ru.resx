@@ -258,6 +258,10 @@
   <data name="Error_UploadIncomplete_Detail" xml:space="preserve"><value>Получено меньше данных, чем заявлено.</value></data>
   <data name="Error_LengthRequired_Title" xml:space="preserve"><value>Не указан размер запроса</value></data>
   <data name="Error_LengthRequired_Detail" xml:space="preserve"><value>Запрос загрузки должен содержать Content-Length.</value></data>
+  <data name="Error_InvalidUploadId_Title" xml:space="preserve"><value>Некорректный идентификатор загрузки</value></data>
+  <data name="Error_InvalidUploadId_Detail" xml:space="preserve"><value>Идентификатор загрузки не является допустимым.</value></data>
+  <data name="Error_UploadIdConflict_Title" xml:space="preserve"><value>Конфликт идентификатора загрузки</value></data>
+  <data name="Error_UploadIdConflict_Detail" xml:space="preserve"><value>Загрузка с таким идентификатором уже существует.</value></data>
   <data name="Error_UploadCancelled_Title" xml:space="preserve"><value>Загрузка отменена</value></data>
   <data name="Error_UploadCancelled_Detail" xml:space="preserve"><value>Загрузка была отменена.</value></data>
   <data name="Error_NameConflict_Title" xml:space="preserve"><value>Конфликт имён</value></data>

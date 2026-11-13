@@ -7,7 +7,7 @@ namespace dotmeer.filebrowser.Tasks;
 public sealed class TaskRepository(TaskDatabase database, TaskNotificationService? notifications = null)
 {
     public Task<FileTask> CreateQueuedAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default) =>
-        CreateAsync(type, sources, destination, FileTaskStatus.Queued, "queued", null, null, cancellationToken);
+        CreateAsync(type, sources, destination, FileTaskStatus.Queued, "queued", null, null, cancellationToken, null);
 
     /// <summary>
     /// Creates a task that is already active and is not placed into the task
@@ -22,14 +22,15 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         string stage,
         long? bytesTotal,
         long? itemsTotal,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? taskId = null)
     {
         if (!FileTaskStateTransitions.IsActive(status) || status == FileTaskStatus.Queued)
         {
             throw new ArgumentException("Активная задача должна быть создана в состоянии scanning/running/cancelling.", nameof(status));
         }
 
-        return CreateAsync(type, sources, destination, status, stage, bytesTotal, itemsTotal, cancellationToken);
+        return CreateAsync(type, sources, destination, status, stage, bytesTotal, itemsTotal, cancellationToken, taskId);
     }
 
     private Task<FileTask> CreateAsync(
@@ -40,7 +41,8 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         string stage,
         long? bytesTotal,
         long? itemsTotal,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? taskId)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(destination);
@@ -49,10 +51,15 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             throw new ArgumentException("Для задачи требуется хотя бы один источник.", nameof(sources));
         }
 
+        if (taskId == Guid.Empty)
+        {
+            throw new ArgumentException("Идентификатор задачи не может быть пустым.", nameof(taskId));
+        }
+
         var now = DateTimeOffset.UtcNow;
         var startedAt = status == FileTaskStatus.Queued ? (DateTimeOffset?)null : now;
         var task = new FileTask(
-            Guid.NewGuid(),
+            taskId ?? Guid.NewGuid(),
             type,
             sources.ToArray(),
             [],
@@ -88,7 +95,14 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             command.Parameters.AddWithValue("$createdAtUtc", ToDatabaseValue(now));
             command.Parameters.AddWithValue("$startedAtUtc", (object?)startedAt is null ? DBNull.Value : ToDatabaseValue(startedAt.Value));
             command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(now));
-            command.ExecuteNonQuery();
+            try
+            {
+                command.ExecuteNonQuery();
+            }
+            catch (SqliteException exception) when (SqliteErrors.IsPrimaryKeyConstraint(exception))
+            {
+                throw new FileTaskIdConflictException();
+            }
         }
 
         foreach (var source in sources)
@@ -143,9 +157,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             }
         }
 
-        var tasks = rows
-            .Select(row => ToFileTask(row, GetSources(connection, row.Id), GetItems(connection, row.Id)))
-            .ToList();
+        var tasks = BuildTasks(connection, rows).ToList();
 
         var hasMore = tasks.Count > limit;
         if (hasMore)
@@ -175,9 +187,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             }
         }
 
-        var tasks = rows
-            .Select(row => ToFileTask(row, GetSources(connection, row.Id), GetItems(connection, row.Id)))
-            .ToArray();
+        var tasks = BuildTasks(connection, rows);
         return Task.FromResult<IReadOnlyList<FileTask>>(tasks);
     }
 
@@ -208,9 +218,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             }
         }
 
-        var tasks = rows
-            .Select(row => ToFileTask(row, GetSources(connection, row.Id), GetItems(connection, row.Id)))
-            .ToList();
+        var tasks = BuildTasks(connection, rows).ToList();
         var hasMore = tasks.Count > limit;
         if (hasMore)
         {
@@ -257,6 +265,82 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         transaction.Commit();
         Notify(TaskChangeKind.Updated, id);
         return Task.CompletedTask;
+    }
+
+    public Task<UploadFinalizeOutcome> FinalizePublishedUploadAsync(
+        Guid id,
+        FileRef source,
+        long artifactId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = database.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var current = GetTask(connection, id, transaction);
+        if (current is null || current.Status is not (FileTaskStatus.Running or FileTaskStatus.Cancelling))
+        {
+            transaction.Rollback();
+            return Task.FromResult(current?.Status switch
+            {
+                FileTaskStatus.Completed => UploadFinalizeOutcome.Completed,
+                FileTaskStatus.Cancelled => UploadFinalizeOutcome.Cancelled,
+                _ => UploadFinalizeOutcome.Unavailable
+            });
+        }
+
+        using (var item = connection.CreateCommand())
+        {
+            item.Transaction = transaction;
+            item.CommandText = """
+                UPDATE task_items SET status = 'completed', error = NULL, items_done = 1, items_total = 1
+                WHERE task_id = $taskId AND source_root = $root AND source_path = $path;
+                """;
+            item.Parameters.AddWithValue("$taskId", id.ToString("D"));
+            item.Parameters.AddWithValue("$root", source.Root);
+            item.Parameters.AddWithValue("$path", source.Path);
+            if (item.ExecuteNonQuery() != 1)
+            {
+                throw new InvalidOperationException("Элемент опубликованной загрузки не найден.");
+            }
+        }
+
+        var nextStatus = current.Status == FileTaskStatus.Cancelling
+            ? FileTaskStatus.Cancelled
+            : FileTaskStatus.Completed;
+        using (var task = connection.CreateCommand())
+        {
+            task.Transaction = transaction;
+            task.CommandText = """
+                UPDATE tasks SET status = $status, stage = $stage, error = $error,
+                    items_done = 1, items_total = 1, updated_at_utc = $updatedAtUtc,
+                    completed_at_utc = $updatedAtUtc
+                WHERE id = $id AND status = $currentStatus;
+                """;
+            task.Parameters.AddWithValue("$status", ToDatabaseValue(nextStatus));
+            task.Parameters.AddWithValue("$stage", nextStatus == FileTaskStatus.Completed ? "completed" : "cancelled");
+            task.Parameters.AddWithValue("$error", (object?)(nextStatus == FileTaskStatus.Cancelled ? FileTaskErrorCodes.CancelledByUser : null) ?? DBNull.Value);
+            task.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(DateTimeOffset.UtcNow));
+            task.Parameters.AddWithValue("$id", id.ToString("D"));
+            task.Parameters.AddWithValue("$currentStatus", ToDatabaseValue(current.Status));
+            if (task.ExecuteNonQuery() != 1)
+            {
+                transaction.Rollback();
+                return Task.FromResult(UploadFinalizeOutcome.Unavailable);
+            }
+        }
+
+        using (var artifact = connection.CreateCommand())
+        {
+            artifact.Transaction = transaction;
+            artifact.CommandText = "DELETE FROM temporary_artifacts WHERE id = $id;";
+            artifact.Parameters.AddWithValue("$id", artifactId);
+            artifact.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        Notify(TaskChangeKind.Updated, id);
+        return Task.FromResult(nextStatus == FileTaskStatus.Completed
+            ? UploadFinalizeOutcome.Completed
+            : UploadFinalizeOutcome.Cancelled);
     }
 
     public Task<int> InterruptActiveTasksAsync(CancellationToken cancellationToken = default)
@@ -375,7 +459,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         {
             artifacts.Add(new TemporaryArtifact(
                 reader.GetInt64(0),
-                Guid.Parse(reader.GetString(1)),
+                reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1)),
                 new FileRef(reader.GetString(2), reader.GetString(3)),
                 ParseDate(reader.GetString(4))));
         }
@@ -402,7 +486,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(DateTimeOffset.UtcNow));
         command.Parameters.AddWithValue("$id", id.ToString("D"));
         command.ExecuteNonQuery();
-        Notify(TaskChangeKind.Updated, id);
+        Notify(TaskChangeKind.Progress, id);
         return Task.CompletedTask;
     }
 
@@ -487,6 +571,72 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
                 reader.IsDBNull(6) ? null : reader.GetInt64(6)));
         }
         return items;
+    }
+
+    private static IReadOnlyList<FileTask> BuildTasks(SqliteConnection connection, IReadOnlyList<TaskRow> rows)
+    {
+        var itemsByTask = GetItemsBatch(connection, rows.Select(row => row.Id).ToArray());
+        return rows
+            .Select(row =>
+            {
+                var items = itemsByTask.TryGetValue(row.Id, out var stored) ? stored : [];
+                var sources = items.Select(item => item.Source).ToArray();
+                return ToFileTask(row, sources, items);
+            })
+            .ToArray();
+    }
+
+    private static Dictionary<Guid, IReadOnlyList<TaskItem>> GetItemsBatch(
+        SqliteConnection connection,
+        IReadOnlyList<Guid> taskIds)
+    {
+        var result = new Dictionary<Guid, IReadOnlyList<TaskItem>>();
+        if (taskIds.Count == 0)
+        {
+            return result;
+        }
+
+        using var command = connection.CreateCommand();
+        var parameterNames = new string[taskIds.Count];
+        for (var index = 0; index < taskIds.Count; index++)
+        {
+            parameterNames[index] = $"$taskId{index}";
+            command.Parameters.AddWithValue(parameterNames[index], taskIds[index].ToString("D"));
+        }
+
+        command.CommandText = $"""
+            SELECT id, task_id, source_root, source_path, status, error, items_done, items_total
+            FROM task_items
+            WHERE task_id IN ({string.Join(", ", parameterNames)})
+            ORDER BY id;
+            """;
+        using var reader = command.ExecuteReader();
+        var grouped = new Dictionary<Guid, List<TaskItem>>();
+        while (reader.Read())
+        {
+            var taskId = Guid.Parse(reader.GetString(1));
+            if (!grouped.TryGetValue(taskId, out var items))
+            {
+                items = [];
+                grouped[taskId] = items;
+            }
+
+            items.Add(new TaskItem(
+                reader.GetInt64(0),
+                taskId,
+                new FileRef(reader.GetString(2), reader.GetString(3)),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.GetInt64(6),
+                reader.IsDBNull(7) ? null : reader.GetInt64(7)));
+        }
+
+        foreach (var pair in grouped)
+        {
+            result[pair.Key] = pair.Value;
+        }
+
+        return result;
     }
 
     private static TaskRow ReadTaskRow(SqliteDataReader reader) => new(

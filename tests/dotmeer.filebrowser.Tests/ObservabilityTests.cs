@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using dotmeer.filebrowser.FileSystem;
@@ -14,8 +15,8 @@ public sealed class ObservabilityTests
     [Fact]
     public void TaskMetrics_ReportsRejectedInterruptedAndProcessedWork()
     {
-        var longMeasurements = new List<RecordedLongMeasurement>();
-        var doubleMeasurements = new List<RecordedDoubleMeasurement>();
+        var longMeasurements = new ConcurrentQueue<RecordedLongMeasurement>();
+        var doubleMeasurements = new ConcurrentQueue<RecordedDoubleMeasurement>();
         using var listener = CreateMeterListener(longMeasurements, doubleMeasurements);
         var metrics = new TaskMetrics();
 
@@ -35,10 +36,11 @@ public sealed class ObservabilityTests
     public async Task HostedWorker_RecordsTaskSpanAndMetrics()
     {
         using var workspace = new TestWorkspace();
-        var activities = new List<Activity>();
-        using var activityListener = CreateActivityListener(activities);
-        var longMeasurements = new List<RecordedLongMeasurement>();
-        var doubleMeasurements = new List<RecordedDoubleMeasurement>();
+        var activityFinished = new TaskCompletionSource<Activity>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activities = new ConcurrentQueue<Activity>();
+        using var activityListener = CreateActivityListener(activityFinished, activities);
+        var longMeasurements = new ConcurrentQueue<RecordedLongMeasurement>();
+        var doubleMeasurements = new ConcurrentQueue<RecordedDoubleMeasurement>();
         using var meterListener = CreateMeterListener(longMeasurements, doubleMeasurements);
 
         var executor = new RecordingExecutor();
@@ -50,6 +52,7 @@ public sealed class ObservabilityTests
         await executor.Executed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var completed = await WaitForStatusAsync(repository, task.Id, FileTaskStatus.Completed);
 
+        await activityFinished.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var activity = Assert.Single(activities, item => item.OperationName == "filebrowser.task.execute");
         Assert.Equal(task.Id.ToString("D"), GetTag(activity, "filebrowser.task.id"));
         Assert.Equal("copy", GetTag(activity, "filebrowser.task.type"));
@@ -74,8 +77,8 @@ public sealed class ObservabilityTests
     }
 
     private static MeterListener CreateMeterListener(
-        List<RecordedLongMeasurement> longMeasurements,
-        List<RecordedDoubleMeasurement> doubleMeasurements)
+        ConcurrentQueue<RecordedLongMeasurement> longMeasurements,
+        ConcurrentQueue<RecordedDoubleMeasurement> doubleMeasurements)
     {
         var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
@@ -86,20 +89,27 @@ public sealed class ObservabilityTests
             }
         };
         listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
-            longMeasurements.Add(new RecordedLongMeasurement(instrument.Name, value, tags.ToArray())));
+            longMeasurements.Enqueue(new RecordedLongMeasurement(instrument.Name, value, tags.ToArray())));
         listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
-            doubleMeasurements.Add(new RecordedDoubleMeasurement(instrument.Name, value, tags.ToArray())));
+            doubleMeasurements.Enqueue(new RecordedDoubleMeasurement(instrument.Name, value, tags.ToArray())));
         listener.Start();
         return listener;
     }
 
-    private static ActivityListener CreateActivityListener(List<Activity> activities)
+    private static ActivityListener CreateActivityListener(TaskCompletionSource<Activity> activityFinished, ConcurrentQueue<Activity> activities)
     {
         var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == FileBrowserTelemetry.ActivitySource.Name,
             Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStarted = activities.Add
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "filebrowser.task.execute")
+                {
+                    activities.Enqueue(activity);
+                    activityFinished.TrySetResult(activity);
+                }
+            }
         };
         ActivitySource.AddActivityListener(listener);
         return listener;

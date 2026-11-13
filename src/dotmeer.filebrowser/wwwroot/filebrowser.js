@@ -1,5 +1,4 @@
-const previewTextChunkSize = 16 * 1024;
-let lastPreviewText = "";
+const previewTextControllers = new WeakMap();
 
 window.fileBrowser = {
     formatLocalTimes: () => {
@@ -19,29 +18,69 @@ window.fileBrowser = {
         }
     },
 
-    // Текстовый предпросмотр: браузер забирает тело напрямую через fetch,
-    // байты не проходят через Blazor circuit. Передача текста в .NET
-    // выполняется чанками: результат целиком (до 512 КиБ) превышает
-    // потолок сообщения SignalR и обрывает circuit.
-    fetchPreviewText: async (url) => {
-        const response = await fetch(url, { credentials: "same-origin" });
-        if (!response.ok) {
-            lastPreviewText = "";
-            return { ok: false, length: 0, chunkCount: 0, truncated: false };
+    // Текстовый предпросмотр: текст остаётся в DOM просмотрщика. В .NET
+    // возвращаются только метаданные; через Blazor circuit содержимое
+    // файла не передаётся.
+    renderPreviewText: async (element, url, requestId) => {
+        if (!element) {
+            return { ok: false, truncated: false, obsolete: true };
         }
 
-        lastPreviewText = await response.text();
-        return {
-            ok: true,
-            length: lastPreviewText.length,
-            chunkCount: Math.ceil(lastPreviewText.length / previewTextChunkSize),
-            truncated: response.headers.get("X-Preview-Truncated") === "true"
-        };
+        const previous = previewTextControllers.get(element);
+        if (previous) {
+            previous.abort();
+        }
+
+        const controller = new AbortController();
+        previewTextControllers.set(element, controller);
+        element.dataset.previewRequest = String(requestId);
+        element.replaceChildren();
+
+        try {
+            const response = await fetch(url, { credentials: "same-origin", signal: controller.signal });
+            if (!response.ok) {
+                return { ok: false, truncated: false, obsolete: false };
+            }
+
+            const text = await response.text();
+            if (controller.signal.aborted || element.dataset.previewRequest !== String(requestId)) {
+                return { ok: false, truncated: false, obsolete: true };
+            }
+
+            const pre = document.createElement("pre");
+            pre.className = "preview-text";
+            pre.textContent = text;
+            element.replaceChildren(pre);
+            return {
+                ok: true,
+                truncated: response.headers.get("X-Preview-Truncated") === "true",
+                obsolete: false
+            };
+        } catch {
+            return {
+                ok: false,
+                truncated: false,
+                obsolete: controller.signal.aborted || element.dataset.previewRequest !== String(requestId)
+            };
+        } finally {
+            if (previewTextControllers.get(element) === controller) {
+                previewTextControllers.delete(element);
+            }
+        }
     },
 
-    getPreviewTextChunk: (index) => {
-        const start = index * previewTextChunkSize;
-        return lastPreviewText.slice(start, start + previewTextChunkSize);
+    clearPreviewText: (element) => {
+        if (!element) {
+            return;
+        }
+
+        const controller = previewTextControllers.get(element);
+        if (controller) {
+            controller.abort();
+            previewTextControllers.delete(element);
+        }
+
+        element.replaceChildren();
     },
 
     registerReconnectRefresh: (dotNetReference) => {

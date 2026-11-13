@@ -206,21 +206,16 @@ public sealed class VirtualRootServiceTests
         Assert.Equal("renamed.txt", renamed.Path);
         Assert.True(File.Exists(Path.Combine(workspace.RootPath, "renamed.txt")));
         Assert.False(File.Exists(notePath));
-
-        services.Writer.Delete(new FileRef("AllRoots", "alpha/renamed.txt"));
-        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "renamed.txt")));
     }
 
     [Fact]
-    public void Mutations_VirtualRootItselfCannotBeRenamedOrDeleted()
+    public void Mutations_VirtualRootItselfCannotBeRenamed()
     {
         using var workspace = new TestWorkspace();
         var services = CreateServices(workspace);
 
         Assert.Throws<InvalidFileSystemRequestException>(() =>
             services.Writer.Rename(new FileRef("AllRoots", "alpha"), "renamed"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            services.Writer.Delete(new FileRef("AllRoots", "alpha")));
     }
 
     [Fact]

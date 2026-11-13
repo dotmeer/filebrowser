@@ -16,7 +16,7 @@ public sealed class DeleteTaskExecutor(FileDeleteEngine engine)
             {
                 // Отмена проверяется только на границе верхнеуровневых объектов
                 // (SPEC §13.9): переименование и удаление артефакта — критическая
-                // секция, как публикация и удаление источника в move (D080).
+                // секция, как публикация и удаление источника в move.
                 cancellationToken.ThrowIfCancellationRequested();
                 artifact = await engine.RegisterArtifactAsync(task, entry, cancellationToken);
                 FileDeleteEngine.MoveIntoArtifact(artifact, entry.SourcePath);

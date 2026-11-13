@@ -12,6 +12,8 @@
 @inject FileSystemArchiveService ArchiveService
 @inject ArchiveTicketStore ArchiveTickets
 @inject TaskDispatcher Dispatcher
+@inject TaskCancellationService Cancellation
+@inject TaskRepository TaskRepository
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
 @inject FileBrowserConfiguration Configuration
@@ -426,6 +428,7 @@
     private SearchResultDto? _searchResult;
     private string _searchInput = string.Empty;
     private bool _searching;
+    private CancellationTokenSource? _searchCancellation;
     private readonly HashSet<string> _selection = new(StringComparer.Ordinal);
     private string? _error;
     private bool _loading;
@@ -571,7 +574,8 @@
                 await JavaScript.InvokeVoidAsync(
                     "fileBrowser.upload.configure",
                     Configuration.Uploads.MaxFileBytes,
-                    BuildUploadStrings());
+                    BuildUploadStrings(),
+                    _selfReference);
                 await JavaScript.InvokeVoidAsync(
                     "fileBrowser.upload.setContext",
                     _listing?.Root ?? RootQuery ?? string.Empty,
@@ -594,6 +598,9 @@
     private async Task LoadCurrentAsync()
     {
         var requestVersion = ++_requestVersion;
+        _searchCancellation?.Cancel();
+        _searchCancellation?.Dispose();
+        _searchCancellation = null;
         _loading = true;
         _rootsLoading = true;
         _error = null;
@@ -630,19 +637,49 @@
                     await InvokeAsync(StateHasChanged);
                 }
 
-                _searchResult = SearchService.Search(
-                    new FileRef(root, PathQuery ?? string.Empty),
-                    SearchQuery!,
-                    ext: null,
-                    extGlobs: null,
-                    limit: FileSystemSearchService.DefaultResultLimit,
-                    cancellationToken: CancellationToken.None);
+                using var searchCancellation = new CancellationTokenSource();
+                _searchCancellation = searchCancellation;
+                try
+                {
+                    // Обход файловой системы не выполняется в контексте рендера.
+                    var searchResult = await Task.Run(
+                        () => SearchService.Search(
+                            new FileRef(root, PathQuery ?? string.Empty),
+                            SearchQuery!,
+                            ext: null,
+                            extGlobs: null,
+                            limit: FileSystemSearchService.DefaultResultLimit,
+                            cancellationToken: searchCancellation.Token),
+                        searchCancellation.Token);
+                    if (requestVersion != _requestVersion || searchCancellation.IsCancellationRequested)
+                    {
+                        // Поздний результат старого запроса не заменяет новый.
+                        return;
+                    }
+
+                    _searchResult = searchResult;
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                finally
+                {
+                    if (ReferenceEquals(_searchCancellation, searchCancellation))
+                    {
+                        _searchCancellation = null;
+                    }
+                }
             }
             else
             {
                 _searchResult = null;
                 _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty)));
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Отмена предыдущего поиска не является ошибкой файловой системы.
         }
         catch (Exception exception)
         {
@@ -683,11 +720,64 @@
         ["cancel"] = L["Отмена"],
     };
 
-    /// <summary>
-    /// Вызывается загрузчиком после завершения файла: байты уже записаны
-    /// сервером, листинг нужно перечитать. В Blazor circuit передаётся
-    /// только событие, не содержимое файла.
-    /// </summary>
+    [JSInvokable]
+    public async Task OnUploadCancelRequested(string uploadId)
+    {
+        if (_disposed || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => Cancellation.CancelAsync(taskId));
+        }
+        catch (Exception)
+        {
+            // Отмена идемпотентна; окно загрузки получит итог по ответу POST.
+        }
+    }
+
+    [JSInvokable]
+    public async Task<string?> GetUploadTaskOutcome(string uploadId)
+    {
+        if (_disposed || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
+        {
+            return null;
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (!_disposed && !timeout.IsCancellationRequested)
+        {
+            try
+            {
+                var task = await Task.Run(() => TaskRepository.GetAsync(taskId, timeout.Token), timeout.Token);
+                if (task is not null && task.Type != FileTaskType.Upload)
+                {
+                    return null;
+                }
+
+                if (task?.Status == FileTaskStatus.Cancelled)
+                {
+                    return "cancelled";
+                }
+
+                if (task?.Status == FileTaskStatus.Completed)
+                {
+                    return "completed";
+                }
+
+                await Task.Delay(100, timeout.Token);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
     [JSInvokable]
     public async Task OnUploadsChanged()
     {
@@ -711,6 +801,9 @@
         }
 
         _disposed = true;
+        _searchCancellation?.Cancel();
+        _searchCancellation?.Dispose();
+        _searchCancellation = null;
         try
         {
             await JavaScript.InvokeVoidAsync("fileBrowser.upload.dispose");

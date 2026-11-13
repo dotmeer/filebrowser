@@ -57,7 +57,6 @@ catch (Exception exception)
     throw;
 }
 
-// Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
@@ -89,6 +88,7 @@ builder.Services.AddSingleton<TaskDispatcher>();
 builder.Services.AddSingleton<TemporaryArtifactCleanupService>();
 builder.Services.AddSingleton<TaskProgressService>();
 builder.Services.AddSingleton<TaskCancellationRegistry>();
+builder.Services.AddSingleton<TaskOperationGate>();
 builder.Services.AddSingleton<TaskCancellationService>();
 builder.Services.AddSingleton<TaskPresentation>();
 builder.Services.AddSingleton<FileTransferEngine>();
@@ -101,7 +101,6 @@ builder.Services.AddHostedService<TaskExecutorHostedService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -120,11 +119,9 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Единственные HTTP-эндпоинты после удаления внешнего API: скачивание
-// файла и предпросмотр для UI (SPEC §16) и health-checks для эксплуатации
-// (k8s liveness/readiness). Liveness: приложение отвечает. Readiness: пока
-// совпадает с liveness; при появлении критичной зависимости (например
-// SQLite) сюда добавляется соответствующая проверка.
+// HTTP-эндпоинты UI: скачивание, предпросмотр, архив, загрузка и health-checks.
+// Readiness совпадает с liveness: SQLite проверяется при запуске и при
+// недоступности останавливает запуск; автовосстановления нет.
 app.MapDownload();
 app.MapPreview();
 app.MapArchive();

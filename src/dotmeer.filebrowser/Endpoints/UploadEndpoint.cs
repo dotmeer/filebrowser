@@ -103,6 +103,37 @@ public static class UploadEndpoint
                 localizer);
         }
 
+        Guid? uploadId = null;
+        var uploadIdValue = httpContext.Request.Query["uploadId"].ToString();
+        if (uploadIdValue.Length > 0)
+        {
+            if (!Guid.TryParse(uploadIdValue, out var parsedUploadId) || parsedUploadId == Guid.Empty)
+            {
+                metrics.UploadRejected();
+                return Problem(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_upload_id",
+                    "Error_InvalidUploadId_Title",
+                    "Error_InvalidUploadId_Detail",
+                    httpContext,
+                    localizer);
+            }
+
+            if (await repository.GetAsync(parsedUploadId, httpContext.RequestAborted) is not null)
+            {
+                metrics.UploadRejected();
+                return Problem(
+                    StatusCodes.Status409Conflict,
+                    "upload_id_conflict",
+                    "Error_UploadIdConflict_Title",
+                    "Error_UploadIdConflict_Detail",
+                    httpContext,
+                    localizer);
+            }
+
+            uploadId = parsedUploadId;
+        }
+
         var bodyLimit = httpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
         if (bodyLimit is { IsReadOnly: false })
         {
@@ -126,12 +157,48 @@ public static class UploadEndpoint
         UploadSession? session = null;
         CancellationTokenSource? userCancellation = null;
         var taskId = Guid.Empty;
+        var registeredCancellationId = Guid.Empty;
         try
         {
-            session = await uploads.StartAsync(preflight, httpContext.RequestAborted);
+            if (uploadId is { } requestedId)
+            {
+                // Регистрация до создания задачи закрывает окно гонки:
+                // отмена, пришедшая раньше, уже лежит как pending. Только
+                // один запрос владеет источником отмены для uploadId.
+                if (!cancellationRegistry.TryRegister(requestedId, out userCancellation))
+                {
+                    metrics.UploadRejected();
+                    return Problem(
+                        StatusCodes.Status409Conflict,
+                        "upload_id_conflict",
+                        "Error_UploadIdConflict_Title",
+                        "Error_UploadIdConflict_Detail",
+                        httpContext,
+                        localizer);
+                }
+
+                registeredCancellationId = requestedId;
+                if (userCancellation.IsCancellationRequested)
+                {
+                    return Problem(
+                        StatusCodes.Status409Conflict,
+                        "upload_cancelled",
+                        "Error_UploadCancelled_Title",
+                        "Error_UploadCancelled_Detail",
+                        httpContext,
+                        localizer);
+                }
+            }
+
+            session = await uploads.StartAsync(preflight, httpContext.RequestAborted, uploadId);
             taskId = session.TaskId;
 
-            userCancellation = cancellationRegistry.Register(taskId);
+            if (userCancellation is null)
+            {
+                userCancellation = cancellationRegistry.Register(taskId);
+                registeredCancellationId = taskId;
+            }
+
             var created = await repository.GetAsync(taskId, httpContext.RequestAborted);
             if (created?.Status == FileTaskStatus.Cancelling)
             {
@@ -142,15 +209,49 @@ public static class UploadEndpoint
                 httpContext.RequestAborted,
                 lifetime.ApplicationStopping,
                 userCancellation.Token);
+            using var bodyReadCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                httpContext.RequestAborted,
+                lifetime.ApplicationStopping);
 
-            var bytes = await uploads.ReceiveAsync(session, httpContext.Request.Body, linkedCancellation.Token);
-            await uploads.PublishAsync(session, bytes, CancellationToken.None);
+            var bytes = await uploads.ReceiveAsync(
+                session,
+                httpContext.Request.BodyReader,
+                linkedCancellation.Token,
+                bodyReadCancellation.Token);
+            var outcome = await uploads.PublishAsync(session, bytes, CancellationToken.None);
+            if (outcome == UploadPublishOutcome.Cancelled)
+            {
+                return Problem(
+                    StatusCodes.Status409Conflict,
+                    "upload_cancelled",
+                    "Error_UploadCancelled_Title",
+                    "Error_UploadCancelled_Detail",
+                    httpContext,
+                    localizer);
+            }
 
             httpContext.Response.Headers.CacheControl = "no-store";
             httpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
             return Results.Json(
                 new UploadResponse(preflight.FinalPath.Root, preflight.FinalPath.RelativePath, bytes),
                 statusCode: StatusCodes.Status201Created);
+        }
+        catch (UploadPublishedException exception)
+        {
+            // Файл уже опубликован: AbortAsync уничтожил бы результат приёма.
+            return MapProblem(exception.InnerException ?? exception, httpContext, localizer, loggerFactory);
+        }
+        catch (FileTaskIdConflictException)
+        {
+            // Конкурент успел создать задачу с тем же uploadId.
+            metrics.UploadRejected();
+            return Problem(
+                StatusCodes.Status409Conflict,
+                "upload_id_conflict",
+                "Error_UploadIdConflict_Title",
+                "Error_UploadIdConflict_Detail",
+                httpContext,
+                localizer);
         }
         catch (OperationCanceledException) when (lifetime.ApplicationStopping.IsCancellationRequested)
         {
@@ -205,9 +306,14 @@ public static class UploadEndpoint
         }
         finally
         {
+            var cancellationId = taskId != Guid.Empty ? taskId : registeredCancellationId;
+            if (cancellationId != Guid.Empty)
+            {
+                cancellationRegistry.Unregister(cancellationId);
+            }
+
             if (taskId != Guid.Empty)
             {
-                cancellationRegistry.Unregister(taskId);
                 runtimeProgress.Clear(taskId);
             }
         }

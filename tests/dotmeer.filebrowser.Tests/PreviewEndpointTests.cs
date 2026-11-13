@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using dotmeer.filebrowser.Configuration;
+using dotmeer.filebrowser.Endpoints;
 using dotmeer.filebrowser.Settings;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -87,6 +88,53 @@ public sealed class PreviewEndpointTests
         Assert.Equal(new string('a', 512 * 1024), Encoding.UTF8.GetString(body));
         Assert.True(response.Headers.TryGetValues("X-Preview-Truncated", out var values));
         Assert.Equal("true", values.Single());
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(512 * 1024, false)]
+    [InlineData(512 * 1024 + 1, true)]
+    public async Task Preview_Text_TruncationHeaderMatchesExactLimit(int size, bool truncated)
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(
+            Path.Combine(workspace.RootPath, "boundary.txt"),
+            new string('a', size),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+
+        using var response = await host.Client.GetAsync("/api/fs/preview?root=files&path=boundary.txt");
+        var body = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(truncated ? 512 * 1024 : size, body.Length);
+        Assert.Equal(truncated, response.Headers.Contains("X-Preview-Truncated"));
+    }
+
+    [Fact]
+    public async Task ReadCapped_ObservesCancellationAndDoesNotUseSynchronousRead()
+    {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes("data"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => PreviewEndpoint.ReadCappedAsync(stream, 4, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task Preview_Text_ReleasesFileStreamAfterResponse()
+    {
+        using var workspace = new TestWorkspace();
+        var path = Path.Combine(workspace.RootPath, "released.txt");
+        File.WriteAllText(path, "content");
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+
+        using var response = await host.Client.GetAsync("/api/fs/preview?root=files&path=released.txt");
+        await response.Content.ReadAsByteArrayAsync();
+
+        using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Assert.Equal("content", new StreamReader(exclusive).ReadToEnd());
     }
 
     [Fact]

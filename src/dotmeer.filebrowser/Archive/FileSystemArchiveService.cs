@@ -109,8 +109,7 @@ public sealed class FileSystemArchiveService
 
         try
         {
-            var items = ResolveTopLevelItems(resolvedBase, names);
-            foreach (var item in items)
+            foreach (var item in ResolveTopLevelItems(resolvedBase, names, startedAt, cancellationToken))
             {
                 EnsurePreflightBudget(startedAt, cancellationToken);
                 foreach (var node in FileSystemTreeWalker.EnumerateValidated(
@@ -141,6 +140,13 @@ public sealed class FileSystemArchiveService
                     else
                     {
                         var info = new FileInfo(node.Path);
+                        // Доступность метаданных не гарантирует возможность
+                        // открыть файл. Проверяем чтение до отправки ответа,
+                        // не читая содержимое и не оставляя дескрипторов.
+                        using (File.OpenHandle(node.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        {
+                        }
+
                         entries.Add(new ArchiveEntry(
                             entryName,
                             node.Path,
@@ -228,43 +234,56 @@ public sealed class FileSystemArchiveService
         }
     }
 
-    private List<TopLevelItem> ResolveTopLevelItems(ResolvedPath baseDirectory, IReadOnlyList<string> names)
+    private IEnumerable<TopLevelItem> ResolveTopLevelItems(
+        ResolvedPath baseDirectory,
+        IReadOnlyList<string> names,
+        long startedAt,
+        CancellationToken cancellationToken)
     {
-        var items = new List<TopLevelItem>();
         if (names.Count == 0)
         {
+            // Ленивое перечисление: бюджет, отмена и лимит проверяются на
+            // каждом элементе, полный список каталога не накапливается.
+            var count = 0;
             foreach (var child in Directory.EnumerateFileSystemEntries(baseDirectory.PhysicalPath))
             {
+                EnsurePreflightBudget(startedAt, cancellationToken);
                 var childName = Path.GetFileName(child);
                 if (IsTemporaryArtifactName(childName))
                 {
                     continue;
                 }
 
-                items.Add(new TopLevelItem(childName, child));
-            }
-        }
-        else
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var name in names)
-            {
-                // Имя ребёнка проверяется общим валидатором имён: путь,
-                // служебный префикс и пустые сегменты недопустимы.
-                PathResolver.ValidateNewName(name);
-                if (!seen.Add(name))
+                if (++count > ArchiveLimits.MaxEntries)
                 {
-                    continue;
+                    throw new ArchiveLimitExceededException(
+                        "Число объектов превышает допустимое для одного архива.");
                 }
 
-                var resolved = _pathResolver.ResolveExisting(BuildChildRef(baseDirectory, name));
-                items.Add(new TopLevelItem(name, resolved.PhysicalPath));
+                yield return new TopLevelItem(childName, child);
             }
 
-            items.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+            yield break;
         }
 
-        return items;
+        // Явный набор тоже обрабатывается по одному: разрешённые объекты
+        // не накапливаются до проверки лимита и бюджета.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            EnsurePreflightBudget(startedAt, cancellationToken);
+
+            // Имя ребёнка проверяется общим валидатором имён: путь,
+            // служебный префикс и пустые сегменты недопустимы.
+            PathResolver.ValidateNewName(name);
+            if (!seen.Add(name))
+            {
+                continue;
+            }
+
+            var resolved = _pathResolver.ResolveExisting(BuildChildRef(baseDirectory, name));
+            yield return new TopLevelItem(name, resolved.PhysicalPath);
+        }
     }
 
     private static FileRef BuildChildRef(ResolvedPath parent, string name)

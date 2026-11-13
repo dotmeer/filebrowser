@@ -258,6 +258,10 @@
   <data name="Error_UploadIncomplete_Detail" xml:space="preserve"><value>Less data was received than declared.</value></data>
   <data name="Error_LengthRequired_Title" xml:space="preserve"><value>Request length required</value></data>
   <data name="Error_LengthRequired_Detail" xml:space="preserve"><value>The upload request must declare Content-Length.</value></data>
+  <data name="Error_InvalidUploadId_Title" xml:space="preserve"><value>Invalid upload correlation id</value></data>
+  <data name="Error_InvalidUploadId_Detail" xml:space="preserve"><value>The upload correlation id is not a valid identifier.</value></data>
+  <data name="Error_UploadIdConflict_Title" xml:space="preserve"><value>Upload id conflict</value></data>
+  <data name="Error_UploadIdConflict_Detail" xml:space="preserve"><value>An upload with this correlation id already exists.</value></data>
   <data name="Error_UploadCancelled_Title" xml:space="preserve"><value>Upload cancelled</value></data>
   <data name="Error_UploadCancelled_Detail" xml:space="preserve"><value>The upload was cancelled.</value></data>
   <data name="Error_NameConflict_Title" xml:space="preserve"><value>Name conflict</value></data>

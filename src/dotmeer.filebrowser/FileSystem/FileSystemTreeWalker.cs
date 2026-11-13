@@ -72,10 +72,10 @@ internal static class FileSystemTreeWalker
             while (hasCurrent)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var attributes = TryGetAttributes(currentPath);
-                if (attributes.HasValue && IsSupported(attributes.Value))
+                if (PathInspection.TryClassify(currentPath, out var kind)
+                    && kind is FileSystemEntryKind.RegularFile or FileSystemEntryKind.Directory)
                 {
-                    var isDirectory = (attributes.Value & FileAttributes.Directory) != 0;
+                    var isDirectory = kind == FileSystemEntryKind.Directory;
                     yield return new FileSystemTreeNode(currentPath, isDirectory);
 
                     if (isDirectory && (shouldDescend is null || shouldDescend(currentPath)))
@@ -147,25 +147,6 @@ internal static class FileSystemTreeWalker
         }
     }
 
-    private static FileAttributes? TryGetAttributes(string path)
-    {
-        try
-        {
-            return File.GetAttributes(path);
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private static bool IsSupported(FileAttributes attributes) =>
-        (attributes & FileAttributes.ReparsePoint) == 0
-        && (attributes & FileAttributes.Device) == 0;
 }
 
 internal readonly record struct FileSystemTreeNode(string Path, bool IsDirectory);

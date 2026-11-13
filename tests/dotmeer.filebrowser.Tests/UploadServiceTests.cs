@@ -1,4 +1,6 @@
 using System.Text;
+using System.IO.Pipelines;
+using Microsoft.Data.Sqlite;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
@@ -145,6 +147,214 @@ public sealed class UploadServiceTests
         var task = Assert.Single((await repository.GetHistoryPageAsync(0, 10)).Tasks);
         Assert.Equal(FileTaskStatus.Cancelled, task.Status);
         Assert.Equal(FileTaskErrorCodes.CancelledByUser, task.Error);
+    }
+
+    [Fact]
+    public async Task Receive_PipeReader_UserCancelWhileBodyIsStalled_UnblocksAndCleansUp()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository) = CreateServices(workspace);
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "stalled.bin", 10);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        var pipe = new Pipe();
+        using var cancellation = new CancellationTokenSource();
+
+        var receive = service.ReceiveAsync(session, pipe.Reader, cancellation.Token);
+        await WaitUntilAsync(() => File.Exists(session.TemporaryPhysicalPath));
+        await Task.Delay(50);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => receive.WaitAsync(TimeSpan.FromSeconds(5)));
+        await service.AbortAsync(session, UploadAbortReason.UserCancelled, FileTaskErrorCodes.CancelledByUser);
+        await pipe.Reader.CompleteAsync();
+        await pipe.Writer.CompleteAsync();
+
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Cancelled, task.Status);
+        Assert.Equal(FileTaskErrorCodes.CancelledByUser, task.Error);
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "stalled.bin")));
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Publish_AfterCancellationAcceptedBeforePublicationCreatesNoFinalFile()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository) = CreateServices(workspace);
+        var content = Encoding.UTF8.GetBytes("not published");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "absent.txt", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), service.OperationGate);
+        await cancellation.CancelAsync(session.TaskId);
+
+        var outcome = await service.PublishAsync(session, content.Length, CancellationToken.None);
+
+        Assert.Equal(UploadPublishOutcome.Cancelled, outcome);
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "absent.txt")));
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Cancelled, task.Status);
+        Assert.Equal(FileTaskErrorCodes.CancelledByUser, task.Error);
+        Assert.Equal("not_processed", Assert.Single(task.Items).Status);
+    }
+
+    [Fact]
+    public Task Publish_CancellationBeforePublicationBarrierPreventsFinalFile() =>
+        PublishCancellationAtBarrierAsync(UploadPublishCheckpoint.BeforeFileMove);
+
+    [Fact]
+    public Task Publish_CancellationAfterFileMoveBarrierKeepsFileAndFinalizesCancelled() =>
+        PublishCancellationAtBarrierAsync(UploadPublishCheckpoint.AfterFileMove);
+
+    private async Task PublishCancellationAtBarrierAsync(
+        UploadPublishCheckpoint checkpoint)
+    {
+        using var workspace = new TestWorkspace();
+        var operationGate = new TaskOperationGate();
+        var (service, repository) = CreateServices(workspace, operationGate: operationGate);
+        var content = Encoding.UTF8.GetBytes("barrier race");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "barrier.txt", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.PublishCheckpointAsync = async reached =>
+        {
+            if (reached == checkpoint)
+            {
+                entered.SetResult();
+                await release.Task;
+            }
+        };
+
+        var publishing = service.PublishAsync(session, content.Length, CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), operationGate);
+        await cancellation.CancelAsync(session.TaskId);
+        release.SetResult();
+
+        Assert.Equal(UploadPublishOutcome.Cancelled, await publishing.WaitAsync(TimeSpan.FromSeconds(10)));
+        var finalPath = Path.Combine(workspace.RootPath, "barrier.txt");
+        if (checkpoint == UploadPublishCheckpoint.BeforeFileMove)
+        {
+            Assert.False(File.Exists(finalPath));
+        }
+        else
+        {
+            Assert.Equal(content, await File.ReadAllBytesAsync(finalPath));
+        }
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Cancelled, task.Status);
+        Assert.Equal(FileTaskErrorCodes.CancelledByUser, task.Error);
+        Assert.Equal(
+            checkpoint == UploadPublishCheckpoint.BeforeFileMove ? "not_processed" : "completed",
+            Assert.Single(task.Items).Status);
+    }
+
+    [Fact]
+    public async Task Publish_FinalizationSqliteFailureKeepsPublishedFileAndArtifactRegistration()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository, _) = CreateServicesWithConfiguration(workspace);
+        var content = Encoding.UTF8.GetBytes("published despite sqlite failure");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "sqlite-failure.txt", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+
+        var database = new TaskDatabase(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
+        using (var connection = database.OpenConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TRIGGER fail_upload_completion
+                BEFORE UPDATE OF status ON tasks
+                WHEN NEW.status = 'completed'
+                BEGIN SELECT RAISE(ABORT, 'injected finalization failure'); END;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var exception = await Assert.ThrowsAsync<UploadPublishedException>(() =>
+            service.PublishAsync(session, content.Length, CancellationToken.None));
+
+        Assert.IsType<SqliteException>(exception.InnerException);
+        Assert.Equal(content, await File.ReadAllBytesAsync(Path.Combine(workspace.RootPath, "sqlite-failure.txt")));
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        var artifact = Assert.Single(await repository.GetTemporaryArtifactsAsync());
+        Assert.Equal(session.ArtifactId, artifact.Id);
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Failed, task.Status);
+        Assert.Equal("completed", Assert.Single(task.Items).Status);
+    }
+
+    [Fact]
+    public async Task CancelAfterCompleted_IsNoOp()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository) = CreateServices(workspace);
+        var content = Encoding.UTF8.GetBytes("done");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "done.txt", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+        var outcome = await service.PublishAsync(session, content.Length, CancellationToken.None);
+        Assert.Equal(UploadPublishOutcome.Completed, outcome);
+
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), service.OperationGate);
+        await cancellation.CancelAsync(session.TaskId);
+
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Completed, task.Status);
+        Assert.Equal("completed", Assert.Single(task.Items).Status);
+        Assert.Equal(content, await File.ReadAllBytesAsync(Path.Combine(workspace.RootPath, "done.txt")));
+    }
+
+    [Fact]
+    public async Task Abort_ClientDisconnectMarksFailedWithUploadAborted()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository) = CreateServices(workspace);
+        var content = Encoding.UTF8.GetBytes("lost");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "lost.bin", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+
+        await service.AbortAsync(session, UploadAbortReason.ClientDisconnected, FileTaskErrorCodes.UploadAborted);
+
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "lost.bin")));
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Failed, task.Status);
+        Assert.Equal(FileTaskErrorCodes.UploadAborted, task.Error);
+        Assert.Equal("failed", Assert.Single(task.Items).Status);
+    }
+
+    [Fact]
+    public async Task Abort_BeforePublishRemovesTemporaryFileAndKeepsNoFinalFile()
+    {
+        using var workspace = new TestWorkspace();
+        var (service, repository) = CreateServices(workspace);
+        var content = Encoding.UTF8.GetBytes("partial");
+        var preflight = service.Prepare(new FileRef("files", string.Empty), "absent.txt", content.Length);
+        var session = await service.StartAsync(preflight, CancellationToken.None);
+        await service.ReceiveAsync(session, new MemoryStream(content), CancellationToken.None);
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), service.OperationGate);
+        await cancellation.CancelAsync(session.TaskId);
+
+        await service.AbortAsync(session, UploadAbortReason.UserCancelled, FileTaskErrorCodes.CancelledByUser);
+
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "absent.txt")));
+        Assert.False(File.Exists(session.TemporaryPhysicalPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+        var task = (await repository.GetAsync(session.TaskId))!;
+        Assert.Equal(FileTaskStatus.Cancelled, task.Status);
+        Assert.Equal("not_processed", Assert.Single(task.Items).Status);
     }
 
     [Fact]
@@ -296,16 +506,33 @@ public sealed class UploadServiceTests
 
     private static (UploadService Service, TaskRepository Repository) CreateServices(
         TestWorkspace workspace,
-        long? maxFileBytes = null)
+        long? maxFileBytes = null,
+        TaskOperationGate? operationGate = null)
     {
-        var (service, repository, _) = CreateServicesWithConfiguration(workspace, maxFileBytes);
+        var (service, repository, _) = CreateServicesWithConfiguration(workspace, maxFileBytes, operationGate);
         return (service, repository);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var timeout = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (!condition())
+        {
+            if (DateTimeOffset.UtcNow >= timeout)
+            {
+                throw new TimeoutException("Timed out waiting for upload setup.");
+            }
+
+            await Task.Delay(10);
+        }
     }
 
     private static (UploadService Service, TaskRepository Repository, FileBrowserConfiguration Configuration) CreateServicesWithConfiguration(
         TestWorkspace workspace,
-        long? maxFileBytes = null)
+        long? maxFileBytes = null,
+        TaskOperationGate? operationGate = null)
     {
+        operationGate ??= new TaskOperationGate();
         var configPath = maxFileBytes is null
             ? workspace.WriteConfiguration(workspace.RootPath)
             : workspace.WriteRawConfiguration(
@@ -318,7 +545,8 @@ public sealed class UploadServiceTests
             new PathResolver(configuration),
             repository,
             new TaskProgressService(),
-            configuration);
+            configuration,
+            operationGate: operationGate);
         return (service, repository, configuration);
     }
 

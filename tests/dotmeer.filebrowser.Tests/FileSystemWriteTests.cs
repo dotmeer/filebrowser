@@ -36,8 +36,6 @@ public sealed class FileSystemWriteTests
             reader.List(new FileRef("files", ".filebrowser-temp")));
         Assert.Throws<InvalidFileSystemRequestException>(() =>
             writer.Rename(new FileRef("files", ".filebrowser-temp"), "renamed"));
-        Assert.Throws<InvalidFileSystemRequestException>(() =>
-            writer.Delete(new FileRef("files", ".filebrowser-temp")));
 
         Assert.True(File.Exists(temporaryPath));
         Assert.Equal("temporary", File.ReadAllText(temporaryPath));
@@ -82,6 +80,50 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
+    public void CreateDirectory_ExistingFileOrDirectoryReturnsConflictAndKeepsIt()
+    {
+        using var workspace = new TestWorkspace();
+        var writer = CreateWriter(workspace);
+        var existingFile = Path.Combine(workspace.RootPath, "existing-file");
+        File.WriteAllText(existingFile, "keep");
+        var existingDirectory = Path.Combine(workspace.RootPath, "existing-directory");
+        Directory.CreateDirectory(existingDirectory);
+        File.WriteAllText(Path.Combine(existingDirectory, "inside.txt"), "inside");
+
+        Assert.Throws<FileSystemNameConflictException>(() =>
+            writer.CreateDirectory(new FileRef("files", string.Empty), "existing-file"));
+        Assert.Throws<FileSystemNameConflictException>(() =>
+            writer.CreateDirectory(new FileRef("files", string.Empty), "existing-directory"));
+
+        Assert.Equal("keep", File.ReadAllText(existingFile));
+        Assert.Equal("inside", File.ReadAllText(Path.Combine(existingDirectory, "inside.txt")));
+    }
+
+    [Fact]
+    public async Task AtomicDirectory_ExternalRaceCreatesOneDirectoryWithoutTouchingContent()
+    {
+        using var workspace = new TestWorkspace();
+        var path = Path.Combine(workspace.RootPath, "external");
+        var results = await RunConcurrentAttemptsAsync(8, _ =>
+        {
+            try
+            {
+                AtomicDirectory.Create(path);
+                return true;
+            }
+            catch (FileSystemNameConflictException)
+            {
+                return false;
+            }
+        });
+
+        Assert.Equal(1, results.Count(success => success));
+        File.WriteAllText(Path.Combine(path, "keep.txt"), "keep");
+        Assert.Throws<FileSystemNameConflictException>(() => AtomicDirectory.Create(path));
+        Assert.Equal("keep", File.ReadAllText(Path.Combine(path, "keep.txt")));
+    }
+
+    [Fact]
     public async Task Rename_ConcurrentAttemptsPublishExactlyOneDestination()
     {
         using var workspace = new TestWorkspace();
@@ -113,101 +155,13 @@ public sealed class FileSystemWriteTests
     }
 
     [Fact]
-    public void Delete_RemovesExactlyTheRequestedObject()
-    {
-        using var workspace = new TestWorkspace();
-        var removable = Path.Combine(workspace.RootPath, "removable");
-        Directory.CreateDirectory(removable);
-        File.WriteAllText(Path.Combine(removable, "inside.txt"), "content");
-        var survivor = Path.Combine(workspace.RootPath, "survivor.txt");
-        File.WriteAllText(survivor, "keep");
-        var writer = CreateWriter(workspace);
-
-        writer.Delete(new FileRef("files", "removable"));
-
-        Assert.False(Directory.Exists(removable));
-        Assert.Equal("keep", File.ReadAllText(survivor));
-    }
-
-    [Fact]
-    public void Delete_RemovesDeepDirectoryTree()
-    {
-        using var workspace = new TestWorkspace();
-        var removable = Path.Combine(workspace.RootPath, "removable");
-        var currentPath = removable;
-        var depth = OperatingSystem.IsWindows() ? 48 : 256;
-        for (var index = 0; index < depth; index++)
-        {
-            currentPath = Path.Combine(currentPath, "d");
-            Directory.CreateDirectory(currentPath);
-        }
-
-        File.WriteAllText(Path.Combine(currentPath, "leaf.txt"), "content");
-        var writer = CreateWriter(workspace);
-
-        writer.Delete(new FileRef("files", "removable"));
-
-        Assert.False(Directory.Exists(removable));
-    }
-
-    [Fact]
-    public void RenameAndDelete_RejectRoot()
+    public void Rename_RejectsRoot()
     {
         using var workspace = new TestWorkspace();
         var writer = CreateWriter(workspace);
 
         Assert.Throws<InvalidFileSystemRequestException>(() => writer.Rename(new FileRef("files", string.Empty), "other"));
-        Assert.Throws<InvalidFileSystemRequestException>(() => writer.Delete(new FileRef("files", string.Empty)));
         Assert.True(Directory.Exists(workspace.RootPath));
-    }
-
-    [Fact]
-    public void Delete_RejectsSymlink()
-    {
-        using var workspace = new TestWorkspace();
-        var target = Path.Combine(workspace.RootPath, "target.txt");
-        File.WriteAllText(target, "content");
-        var link = Path.Combine(workspace.RootPath, "link.txt");
-        try
-        {
-            File.CreateSymbolicLink(link, target);
-        }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
-        {
-            return;
-        }
-
-        var writer = CreateWriter(workspace);
-
-        Assert.Throws<UnsupportedFileSystemObjectException>(() => writer.Delete(new FileRef("files", "link.txt")));
-        Assert.True(File.Exists(link));
-        Assert.Equal("content", File.ReadAllText(target));
-    }
-
-    [Fact]
-    public void Delete_RejectsDirectoryContainingSymlink()
-    {
-        using var workspace = new TestWorkspace();
-        var directory = Path.Combine(workspace.RootPath, "directory");
-        Directory.CreateDirectory(directory);
-        var target = Path.Combine(workspace.RootPath, "target.txt");
-        File.WriteAllText(target, "content");
-        var link = Path.Combine(directory, "link.txt");
-        try
-        {
-            File.CreateSymbolicLink(link, target);
-        }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
-        {
-            return;
-        }
-
-        var writer = CreateWriter(workspace);
-
-        Assert.Throws<UnsupportedFileSystemObjectException>(() => writer.Delete(new FileRef("files", "directory")));
-        Assert.True(Directory.Exists(directory));
-        Assert.True(File.Exists(link));
-        Assert.Equal("content", File.ReadAllText(target));
     }
 
     [Fact]

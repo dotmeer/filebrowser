@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -242,6 +243,132 @@ public sealed class UploadEndpointTests
     }
 
     [Fact]
+    public async Task Upload_WithCorrelationId_UsesItForTask()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host);
+        var uploadId = Guid.NewGuid();
+
+        using var response = await SendUploadAsync(
+            host,
+            token,
+            "files",
+            string.Empty,
+            "correlated.txt",
+            Encoding.UTF8.GetBytes("data"),
+            uploadId.ToString("D"));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var task = await host.Services.GetRequiredService<TaskRepository>().GetAsync(uploadId);
+        Assert.NotNull(task);
+        Assert.Equal(FileTaskStatus.Completed, task!.Status);
+    }
+
+    [Fact]
+    public async Task Upload_WithConcurrentOwnerForSameId_ReturnsConflictAndKeepsOwnerRegistration()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host);
+        var uploadId = Guid.NewGuid();
+        var registry = host.Services.GetRequiredService<TaskCancellationRegistry>();
+        Assert.True(registry.TryRegister(uploadId, out var owner));
+
+        using var response = await SendUploadAsync(
+            host,
+            token,
+            "files",
+            string.Empty,
+            "raced.txt",
+            Encoding.UTF8.GetBytes("x"),
+            uploadId.ToString("D"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("upload_id_conflict", await ReadProblemCodeAsync(response));
+        Assert.False(owner!.IsCancellationRequested);
+        Assert.Null(await host.Services.GetRequiredService<TaskRepository>().GetAsync(uploadId));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "raced.txt")));
+        registry.Unregister(uploadId);
+    }
+
+    [Fact]
+    public async Task Upload_AfterEarlyUserCancel_Returns409WithoutTaskOrFile()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host);
+        var uploadId = Guid.NewGuid();
+        var cancellation = host.Services.GetRequiredService<TaskCancellationService>();
+        await cancellation.CancelAsync(uploadId);
+
+        using var response = await SendUploadAsync(
+            host,
+            token,
+            "files",
+            string.Empty,
+            "cancelled.txt",
+            Encoding.UTF8.GetBytes("x"),
+            uploadId.ToString("D"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("upload_cancelled", await ReadProblemCodeAsync(response));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "cancelled.txt")));
+        Assert.Null(await host.Services.GetRequiredService<TaskRepository>().GetAsync(uploadId));
+    }
+
+    [Fact]
+    public async Task Upload_WithInvalidCorrelationId_ReturnsBadRequest()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host);
+
+        using var response = await SendUploadAsync(
+            host,
+            token,
+            "files",
+            string.Empty,
+            "bad-id.txt",
+            Encoding.UTF8.GetBytes("x"),
+            uploadId: "not-a-guid");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_upload_id", await ReadProblemCodeAsync(response));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "bad-id.txt")));
+    }
+
+    [Fact]
+    public async Task Upload_WithExistingCorrelationId_ReturnsConflictAndKeepsTask()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var token = await GetAntiforgeryTokenAsync(host);
+        var repository = host.Services.GetRequiredService<TaskRepository>();
+        var existing = await repository.CreateQueuedAsync(
+            FileTaskType.Copy,
+            [new FileRef("files", "source.txt")],
+            new FileRef("files", "target"));
+
+        using var response = await SendUploadAsync(
+            host,
+            token,
+            "files",
+            string.Empty,
+            "conflict.txt",
+            Encoding.UTF8.GetBytes("x"),
+            existing.Id.ToString("D"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("upload_id_conflict", await ReadProblemCodeAsync(response));
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "conflict.txt")));
+        var task = await repository.GetAsync(existing.Id);
+        Assert.NotNull(task);
+        Assert.Equal(FileTaskType.Copy, task!.Type);
+        Assert.Equal(FileTaskStatus.Queued, task.Status);
+    }
+
+    [Fact]
     public async Task Check_ReportsFreeNameConflictAndOversize()
     {
         using var workspace = new TestWorkspace();
@@ -295,9 +422,10 @@ public sealed class UploadEndpointTests
         string root,
         string path,
         string name,
-        byte[] content)
+        byte[] content,
+        string? uploadId = null)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, BuildUploadUrl(root, path, name))
+        var request = new HttpRequestMessage(HttpMethod.Post, BuildUploadUrl(root, path, name, uploadId))
         {
             Content = new ByteArrayContent(content)
         };
@@ -332,8 +460,11 @@ public sealed class UploadEndpointTests
         return host.Client.SendAsync(request);
     }
 
-    private static string BuildUploadUrl(string root, string path, string name) =>
-        $"/api/fs/upload?root={Uri.EscapeDataString(root)}&path={Uri.EscapeDataString(path)}&name={Uri.EscapeDataString(name)}";
+    private static string BuildUploadUrl(string root, string path, string name, string? uploadId = null)
+    {
+        var url = $"/api/fs/upload?root={Uri.EscapeDataString(root)}&path={Uri.EscapeDataString(path)}&name={Uri.EscapeDataString(name)}";
+        return uploadId is null ? url : $"{url}&uploadId={Uri.EscapeDataString(uploadId)}";
+    }
 
     private static async Task<string?> ReadProblemCodeAsync(HttpResponseMessage response)
     {

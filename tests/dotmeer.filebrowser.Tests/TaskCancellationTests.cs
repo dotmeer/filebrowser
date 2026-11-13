@@ -73,12 +73,44 @@ public sealed class TaskCancellationTests
     }
 
     [Fact]
+    public void Registry_TryRegisterAllowsExactlyOneOwner()
+    {
+        var registry = new TaskCancellationRegistry();
+        var taskId = Guid.NewGuid();
+
+        Assert.True(registry.TryRegister(taskId, out var first));
+        Assert.NotNull(first);
+        Assert.False(registry.TryRegister(taskId, out var second));
+        Assert.Null(second);
+
+        registry.Unregister(taskId);
+        Assert.True(registry.TryRegister(taskId, out var third));
+        Assert.False(third.IsCancellationRequested);
+        registry.Unregister(taskId);
+    }
+
+    [Fact]
+    public async Task CancelBeforeTaskRowExists_IsObservedByLateRegistration()
+    {
+        using var workspace = new TestWorkspace();
+        var repository = CreateRepository(workspace);
+        var registry = new TaskCancellationRegistry();
+        var cancellation = new TaskCancellationService(repository, registry, new TaskOperationGate());
+        var uploadId = Guid.NewGuid();
+
+        await cancellation.CancelAsync(uploadId);
+
+        using var source = registry.Register(uploadId);
+        Assert.True(source.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task CancelService_IsIdempotentForMissingAndTerminalTasks()
     {
         using var workspace = new TestWorkspace();
         var repository = CreateRepository(workspace);
         var registry = new TaskCancellationRegistry();
-        var service = new TaskCancellationService(repository, registry);
+        var service = new TaskCancellationService(repository, registry, new TaskOperationGate());
 
         await service.CancelAsync(Guid.NewGuid());
 
@@ -94,7 +126,7 @@ public sealed class TaskCancellationTests
     {
         using var workspace = new TestWorkspace();
         var repository = CreateRepository(workspace);
-        var service = new TaskCancellationService(repository, new TaskCancellationRegistry());
+        var service = new TaskCancellationService(repository, new TaskCancellationRegistry(), new TaskOperationGate());
         var task = await repository.CreateQueuedAsync(FileTaskType.Copy, [new FileRef("files", "a.txt")], new FileRef("files", "target"));
 
         await service.CancelAsync(task.Id);
@@ -111,7 +143,7 @@ public sealed class TaskCancellationTests
         using var workspace = new TestWorkspace();
         var repository = CreateRepository(workspace);
         var registry = new TaskCancellationRegistry();
-        var service = new TaskCancellationService(repository, registry);
+        var service = new TaskCancellationService(repository, registry, new TaskOperationGate());
         var task = await repository.CreateQueuedAsync(FileTaskType.Copy, [new FileRef("files", "a.txt")], new FileRef("files", "target"));
         await repository.TransitionAsync(task.Id, FileTaskStatus.Scanning, "scanning");
         await repository.TransitionAsync(task.Id, FileTaskStatus.Running, "running");

@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,6 +20,7 @@ internal static class TestHostFactory
         string configPath,
         string? databasePath = null,
         string? environment = null,
+        bool useKestrel = false,
         Action<IServiceCollection>? configureServices = null)
     {
         var keyDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "data-protection-keys");
@@ -46,6 +49,11 @@ internal static class TestHostFactory
         });
         try
         {
+            if (useKestrel)
+            {
+                factory.UseKestrel(options => options.Listen(System.Net.IPAddress.Loopback, 0));
+            }
+
             return new TestHost(factory, factory.CreateClient());
         }
         catch
@@ -58,6 +66,9 @@ internal static class TestHostFactory
     internal sealed class TestHost(WebApplicationFactory<Program> factory, HttpClient client) : IDisposable
     {
         public IServiceProvider Services => factory.Services;
+
+        public Uri Address => new(factory.Services.GetRequiredService<IServer>()
+            .Features.Get<IServerAddressesFeature>()!.Addresses.Single());
 
         public HttpClient Client { get; } = client;
 

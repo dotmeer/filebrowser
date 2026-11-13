@@ -47,8 +47,16 @@ public static class PreviewEndpoint
 
                     if (definition.Kind == PreviewKind.Text)
                     {
-                        var (body, truncated) = await ReadCappedAsync(file.Stream, PreviewCatalog.TextPreviewLimitBytes);
-                        file.Stream.Dispose();
+                        byte[] body;
+                        bool truncated;
+                        await using (file.Stream)
+                        {
+                            (body, truncated) = await ReadCappedAsync(
+                                file.Stream,
+                                PreviewCatalog.TextPreviewLimitBytes,
+                                httpContext.RequestAborted);
+                        }
+
                         if (truncated)
                         {
                             httpContext.Response.Headers["X-Preview-Truncated"] = "true";
@@ -57,12 +65,17 @@ public static class PreviewEndpoint
                         return Results.Bytes(body, definition.ContentType);
                     }
 
-                    // Изображения — поток целиком; PDF — с поддержкой Range
-                    // (браузер запрашивает фрагменты для постраничного рендеринга).
+                    // Изображения — поток целиком; PDF — с поддержкой Range.
+                    // Владение потоком передаётся Results.File: закрывать его
+                    // здесь нельзя, иначе ответ потеряет данные.
                     return Results.File(
                         file.Stream,
                         contentType: definition.ContentType,
                         enableRangeProcessing: definition.Kind == PreviewKind.Pdf);
+                }
+                catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)
+                {
+                    return Results.Empty;
                 }
                 catch (Exception exception) when (!httpContext.Response.HasStarted)
                 {
@@ -94,13 +107,16 @@ public static class PreviewEndpoint
     /// файл целиком. Флаг усечения — true, если за пределами потолка
     /// остались данные.
     /// </summary>
-    private static async Task<(byte[] Body, bool Truncated)> ReadCappedAsync(FileStream stream, long limit)
+    internal static async Task<(byte[] Body, bool Truncated)> ReadCappedAsync(
+        Stream stream,
+        long limit,
+        CancellationToken cancellationToken)
     {
         var buffer = new byte[limit];
         var totalRead = 0;
         while (totalRead < buffer.Length)
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(totalRead));
+            var read = await stream.ReadAsync(buffer.AsMemory(totalRead), cancellationToken);
             if (read == 0)
             {
                 break;
@@ -112,7 +128,9 @@ public static class PreviewEndpoint
         var truncated = false;
         if (totalRead == buffer.Length)
         {
-            truncated = stream.ReadByte() != -1;
+            // Синхронный ReadByte обходил бы отмену и мог блокировать поток.
+            var probe = new byte[1];
+            truncated = await stream.ReadAsync(probe.AsMemory(), cancellationToken) > 0;
         }
 
         if (totalRead < buffer.Length)

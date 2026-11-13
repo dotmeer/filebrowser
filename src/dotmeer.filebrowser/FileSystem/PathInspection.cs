@@ -1,5 +1,13 @@
 namespace dotmeer.filebrowser.FileSystem;
 
+internal enum FileSystemEntryKind
+{
+    RegularFile,
+    Directory,
+    Symlink,
+    Unsupported
+}
+
 internal static class PathInspection
 {
     public static bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
@@ -36,20 +44,47 @@ internal static class PathInspection
 
     public static void ThrowIfUnsupported(string path)
     {
-        if (!TryGetAttributes(path, out var attributes))
+        if (!TryClassify(path, out var kind))
         {
             throw new FileSystemResolutionException("Запрошенный объект не существует.");
         }
 
-        if (IsSymlink(path, attributes))
+        switch (kind)
         {
-            throw new UnsupportedFileSystemObjectException("Символические ссылки не поддерживаются.");
+            case FileSystemEntryKind.Symlink:
+                throw new UnsupportedFileSystemObjectException("Символические ссылки не поддерживаются.");
+            case FileSystemEntryKind.Unsupported:
+                throw new UnsupportedFileSystemObjectException("Тип объекта не поддерживается.");
+        }
+    }
+
+    public static bool TryClassify(string path, out FileSystemEntryKind kind)
+    {
+        if (!TryGetAttributes(path, out var attributes))
+        {
+            kind = default;
+            return false;
         }
 
-        if ((attributes & FileAttributes.Device) != 0)
+        kind = Classify(path, attributes);
+        return true;
+    }
+
+    public static FileSystemEntryKind Classify(string path, FileAttributes attributes)
+    {
+        if (IsSymlink(path, attributes))
         {
-            throw new UnsupportedFileSystemObjectException("Тип объекта не поддерживается.");
+            return FileSystemEntryKind.Symlink;
         }
+
+        if (UnixFileType.IsSpecialFile(path) || (attributes & FileAttributes.Device) != 0)
+        {
+            return FileSystemEntryKind.Unsupported;
+        }
+
+        return (attributes & FileAttributes.Directory) != 0
+            ? FileSystemEntryKind.Directory
+            : FileSystemEntryKind.RegularFile;
     }
 
     public static bool PathsOverlap(string firstPath, string secondPath) =>

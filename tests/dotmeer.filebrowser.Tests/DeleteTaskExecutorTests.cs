@@ -39,6 +39,113 @@ public sealed class DeleteTaskExecutorTests
     }
 
     [Fact]
+    public async Task Execute_DeletesDeepDirectoryTree()
+    {
+        using var workspace = new TestWorkspace();
+        var removable = Path.Combine(workspace.RootPath, "removable");
+        var currentPath = removable;
+        var depth = OperatingSystem.IsWindows() ? 48 : 256;
+        for (var index = 0; index < depth; index++)
+        {
+            currentPath = Path.Combine(currentPath, "d");
+            Directory.CreateDirectory(currentPath);
+        }
+
+        File.WriteAllText(Path.Combine(currentPath, "leaf.txt"), "content");
+        var (repository, executor, _) = CreateExecutor(workspace);
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "removable")]);
+
+        await executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None);
+
+        Assert.False(Directory.Exists(removable));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task Execute_RejectsDirectSymlinkSource()
+    {
+        using var workspace = new TestWorkspace();
+        var target = Path.Combine(workspace.RootPath, "target.txt");
+        File.WriteAllText(target, "content");
+        var link = Path.Combine(workspace.RootPath, "link.txt");
+        try
+        {
+            File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var (repository, executor, _) = CreateExecutor(workspace);
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "link.txt")]);
+
+        var failure = await Assert.ThrowsAsync<FileTaskExecutionException>(
+            () => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
+
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, failure.SafeCode);
+        Assert.True(File.Exists(link));
+        Assert.Equal("content", File.ReadAllText(target));
+        var failed = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.UnsupportedOrSymlink, Assert.Single(failed!.Items).Error);
+    }
+
+    [Fact]
+    public async Task Execute_RejectsDirectTemporaryArtifactPath()
+    {
+        using var workspace = new TestWorkspace();
+        var artifactPath = Path.Combine(workspace.RootPath, ".filebrowser-other");
+        File.WriteAllText(artifactPath, "temporary");
+        var (repository, executor, _) = CreateExecutor(workspace);
+        var otherTask = await repository.CreateQueuedAsync(
+            FileTaskType.Copy,
+            [new FileRef("source", "source.txt")],
+            new FileRef("source", string.Empty));
+        await repository.RegisterTemporaryArtifactAsync(otherTask.Id, new FileRef("source", ".filebrowser-other"));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", ".filebrowser-other")]);
+
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(
+            () => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
+
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        Assert.True(File.Exists(artifactPath));
+        var failed = await repository.GetAsync(task.Id);
+        Assert.Equal(FileTaskErrorCodes.SourceUnavailable, Assert.Single(failed!.Items).Error);
+    }
+
+    [Fact]
+    public async Task Execute_DeletesUnderVirtualRootButRejectsVirtualRootItself()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "note.txt"), "note");
+        var configPath = workspace.WriteRawConfiguration($"""
+            workers: 1
+            roots:
+              - name: alpha
+                path: '{workspace.RootPath}'
+            """);
+        var database = new TaskDatabase(Path.Combine(workspace.ConfigDirectory, "tasks.db"));
+        database.Migrate();
+        var repository = new TaskRepository(database);
+        var paths = new ApplicationPaths(configPath, database.DatabasePath);
+        var executor = new DeleteTaskExecutor(CreateEngine(repository, paths));
+
+        var deletion = await CreateScanningTaskAsync(
+            repository,
+            [new FileRef("AllRoots", "alpha/note.txt")]);
+        await executor.ExecuteAsync(deletion, CancellationToken.None, CancellationToken.None);
+        Assert.False(File.Exists(Path.Combine(workspace.RootPath, "note.txt")));
+
+        var rootTask = await CreateScanningTaskAsync(
+            repository,
+            [new FileRef("AllRoots", "alpha")]);
+        var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(
+            () => executor.ExecuteAsync(rootTask, CancellationToken.None, CancellationToken.None));
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
+        Assert.True(Directory.Exists(workspace.RootPath));
+    }
+
+    [Fact]
     public async Task Execute_RejectsReadOnlyObjectBeforeDeletingAnything()
     {
         using var workspace = new TestWorkspace();

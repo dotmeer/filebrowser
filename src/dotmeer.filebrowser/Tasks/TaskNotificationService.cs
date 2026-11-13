@@ -6,6 +6,7 @@ public enum TaskChangeKind
 {
     Created,
     Updated,
+    Progress,
     HistoryCleared
 }
 

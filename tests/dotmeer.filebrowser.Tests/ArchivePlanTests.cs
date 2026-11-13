@@ -233,6 +233,31 @@ public sealed class ArchivePlanTests
     }
 
     [Fact]
+    public void Plan_FailsBeforeWriteWhenFileIsNotReadable()
+    {
+        if (!OperatingSystem.IsLinux() || Environment.IsPrivilegedProcess)
+        {
+            return;
+        }
+
+        using var workspace = new TestWorkspace();
+        var path = Path.Combine(workspace.RootPath, "unreadable.txt");
+        File.WriteAllText(path, "secret");
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try
+        {
+            var service = CreateService(workspace);
+
+            Assert.Throws<FileSystemAccessDeniedException>(
+                () => service.Plan(new FileRef("files", string.Empty), [], CancellationToken.None));
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
     public void Plan_FailsWhenPreflightBudgetExceeded()
     {
         using var workspace = new TestWorkspace();

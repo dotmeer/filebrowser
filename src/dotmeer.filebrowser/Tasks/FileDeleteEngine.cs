@@ -1,5 +1,6 @@
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
+using Microsoft.Data.Sqlite;
 
 namespace dotmeer.filebrowser.Tasks;
 
@@ -124,7 +125,7 @@ public class FileDeleteEngine(
                     cancellationToken);
                 return new DeleteArtifact(record, physicalPath, entry.SourcePath.IsDirectory);
             }
-            catch (Exception exception) when (exception.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+            catch (SqliteException exception) when (SqliteErrors.IsUniqueConstraint(exception))
             {
                 // Случайное совпадение имени безвредно: выбираем другое.
             }

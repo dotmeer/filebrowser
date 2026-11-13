@@ -12,22 +12,7 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
         lock (GetDestinationLock(destination.PhysicalPath))
         {
             EnsureDestinationDoesNotExist(destination.PhysicalPath);
-            try
-            {
-                Directory.CreateDirectory(destination.PhysicalPath);
-            }
-            catch (UnauthorizedAccessException exception)
-            {
-                throw new FileSystemAccessDeniedException("Недостаточно прав для создания каталога.", exception);
-            }
-            catch (IOException exception) when (PathInspection.Exists(destination.PhysicalPath))
-            {
-                throw new FileSystemNameConflictException("Объект с таким именем уже существует.", exception);
-            }
-            catch (IOException exception)
-            {
-                throw new FileSystemOperationException("Не удалось создать каталог.", exception);
-            }
+            AtomicDirectory.Create(destination.PhysicalPath);
         }
 
         return new FileRef(destination.Root, destination.RelativePath);
@@ -78,39 +63,6 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
         return new FileRef(destination.Root, destination.RelativePath);
     }
 
-    public void Delete(FileRef source)
-    {
-        var resolvedSource = ResolveMutableSource(source);
-        try
-        {
-            if (resolvedSource.IsDirectory)
-            {
-                EnsureDirectoryTreeSupported(resolvedSource.PhysicalPath);
-                Directory.Delete(resolvedSource.PhysicalPath, recursive: true);
-            }
-            else
-            {
-                File.Delete(resolvedSource.PhysicalPath);
-            }
-        }
-        catch (UnauthorizedAccessException exception)
-        {
-            throw new FileSystemAccessDeniedException("Недостаточно прав для удаления объекта.", exception);
-        }
-        catch (FileNotFoundException exception)
-        {
-            throw new FileSystemObjectNotFoundException("Исходный объект больше не существует.", exception);
-        }
-        catch (DirectoryNotFoundException exception)
-        {
-            throw new FileSystemObjectNotFoundException("Исходный объект больше не существует.", exception);
-        }
-        catch (IOException exception)
-        {
-            throw new FileSystemOperationException("Не удалось удалить объект.", exception);
-        }
-    }
-
     private ResolvedPath ResolveMutableSource(FileRef source)
     {
         var resolvedSource = pathResolver.ResolveExisting(source);
@@ -150,12 +102,6 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
         }
     }
 
-    private static void EnsureDirectoryTreeSupported(string directoryPath)
-    {
-        foreach (var _ in FileSystemTreeWalker.EnumerateValidated(directoryPath))
-        {
-        }
-    }
 }
 
 public sealed class FileSystemNameConflictException : FileSystemResolutionException

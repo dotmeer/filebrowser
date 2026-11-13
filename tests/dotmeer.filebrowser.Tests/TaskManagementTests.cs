@@ -3,11 +3,13 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
+using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace dotmeer.filebrowser.Tests;
 
@@ -29,6 +31,9 @@ public sealed class TaskManagementTests
         Assert.Contains(received, change => change.Kind == TaskChangeKind.Created && change.TaskId == task.Id);
         Assert.Contains(received, change => change.Kind == TaskChangeKind.Updated && change.TaskId == task.Id);
 
+        await repository.UpdateProgressAsync(task.Id, 10, 100, 1, 5);
+        Assert.Contains(received, change => change.Kind == TaskChangeKind.Progress && change.TaskId == task.Id);
+
         subscription.Dispose();
         var countAfterUnsubscribe = received.Count;
         await repository.UpdateProgressAsync(task.Id, 10, 100, 1, 5);
@@ -37,7 +42,7 @@ public sealed class TaskManagementTests
     }
 
     [Fact]
-    public async Task HistoryCleanup_DeletesOnlyInactiveTasksWithTheirItemsAndArtifacts()
+    public async Task HistoryCleanup_DeletesInactiveTasksButKeepsArtifactRegistration()
     {
         using var workspace = new TestWorkspace();
         var repository = CreateRepository(workspace);
@@ -55,7 +60,75 @@ public sealed class TaskManagementTests
         Assert.Null(await repository.GetAsync(interrupted.Id));
         Assert.NotNull(await repository.GetAsync(active.Id));
         Assert.Equal(1, CountRows(workspace, "task_items"));
-        Assert.Equal(0, CountRows(workspace, "temporary_artifacts"));
+        Assert.Equal(1, CountRows(workspace, "temporary_artifacts"));
+        var artifact = Assert.Single(await repository.GetTemporaryArtifactsAsync());
+        Assert.Null(artifact.TaskId);
+        Assert.Equal(new FileRef("files", ".filebrowser-cleanup"), artifact.File);
+    }
+
+    [Fact]
+    public async Task ArtifactRegistration_SurvivesHistoryCleanupRestartAndIsRemovedAfterPhysicalCleanup()
+    {
+        using var workspace = new TestWorkspace();
+        var configPath = workspace.WriteConfiguration(workspace.RootPath);
+        var repository = CreateRepository(workspace);
+        var completed = await CreateTerminalTaskAsync(repository, FileTaskStatus.Completed, "completed.txt");
+        var registeredName = ".filebrowser-leftover";
+        var registeredPath = Path.Combine(workspace.RootPath, registeredName);
+        File.WriteAllText(registeredPath, "partial");
+        var unrelatedPath = Path.Combine(workspace.RootPath, ".filebrowser-unrelated");
+        File.WriteAllText(unrelatedPath, "keep");
+        await repository.RegisterTemporaryArtifactAsync(completed.Id, new FileRef("files", registeredName));
+
+        Assert.Equal(1, await repository.DeleteInactiveAsync());
+
+        // Имитация рестарта: новый экземпляр БД должен увидеть регистрацию.
+        var restarted = CreateRepository(workspace);
+        Assert.Null(await restarted.GetAsync(completed.Id));
+        var artifact = Assert.Single(await restarted.GetTemporaryArtifactsAsync());
+        Assert.Null(artifact.TaskId);
+
+        var cleanup = new TemporaryArtifactCleanupService(
+            restarted,
+            new PathResolver(FileBrowserConfigurationLoader.Load(configPath)),
+            NullLogger<TemporaryArtifactCleanupService>.Instance);
+        await cleanup.CleanupAsync(CancellationToken.None);
+
+        Assert.False(File.Exists(registeredPath));
+        Assert.True(File.Exists(unrelatedPath));
+        Assert.Empty(await restarted.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task ArtifactRegistration_IsKeptWhileRootIsUnavailableAndCleanupSucceedsAfterRestore()
+    {
+        using var workspace = new TestWorkspace();
+        var rootPath = Path.Combine(workspace.RootPath, "temporary-root");
+        var backupPath = Path.Combine(workspace.RootPath, "temporary-root-backup");
+        Directory.CreateDirectory(rootPath);
+        var configPath = workspace.WriteRawConfiguration(
+            $"roots:\n  - name: files\n    path: '{rootPath}'\n");
+        var repository = CreateRepository(workspace);
+        var completed = await CreateTerminalTaskAsync(repository, FileTaskStatus.Completed, "completed.txt");
+        var registeredName = ".filebrowser-unavailable";
+        var registeredPath = Path.Combine(rootPath, registeredName);
+        File.WriteAllText(registeredPath, "partial");
+        await repository.RegisterTemporaryArtifactAsync(completed.Id, new FileRef("files", registeredName));
+        await repository.DeleteInactiveAsync();
+
+        var cleanup = new TemporaryArtifactCleanupService(
+            repository,
+            new PathResolver(FileBrowserConfigurationLoader.Load(configPath)),
+            NullLogger<TemporaryArtifactCleanupService>.Instance);
+
+        Directory.Move(rootPath, backupPath);
+        await cleanup.CleanupAsync(CancellationToken.None);
+        Assert.Single(await repository.GetTemporaryArtifactsAsync());
+
+        Directory.Move(backupPath, rootPath);
+        await cleanup.CleanupAsync(CancellationToken.None);
+        Assert.False(File.Exists(registeredPath));
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
     }
 
     [Fact]
@@ -81,6 +154,126 @@ public sealed class TaskManagementTests
         Assert.Contains(firstPage.Tasks.Concat(secondPage.Tasks), task => task.Id == failed.Id);
         Assert.Contains(firstPage.Tasks.Concat(secondPage.Tasks), task => task.Id == interrupted.Id);
         Assert.Equal(active.Id, Assert.Single(activeTasks).Id);
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_AfterCancellationKeepsPublishedFileAndCompletedItem()
+    {
+        using var workspace = new TestWorkspace();
+        var repository = CreateRepository(workspace);
+        var task = await repository.CreateActiveAsync(
+            FileTaskType.Upload,
+            [new FileRef("files", "published.txt")],
+            new FileRef("files", string.Empty),
+            FileTaskStatus.Scanning,
+            "scanning",
+            7,
+            1);
+        await repository.TransitionAsync(task.Id, FileTaskStatus.Running, "uploading");
+        var finalPath = Path.Combine(workspace.RootPath, "published.txt");
+        File.WriteAllText(finalPath, "content");
+        var source = new FileRef("files", "published.txt");
+        var artifact = await repository.RegisterTemporaryArtifactAsync(task.Id, new FileRef("files", ".filebrowser-test"));
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), new TaskOperationGate());
+        await cancellation.CancelAsync(task.Id);
+
+        var outcome = await repository.FinalizePublishedUploadAsync(task.Id, source, artifact.Id);
+
+        Assert.Equal(UploadFinalizeOutcome.Cancelled, outcome);
+        Assert.Equal("content", File.ReadAllText(finalPath));
+        var stored = (await repository.GetAsync(task.Id))!;
+        Assert.Equal(FileTaskStatus.Cancelled, stored.Status);
+        Assert.Equal(FileTaskErrorCodes.CancelledByUser, stored.Error);
+        Assert.Equal("completed", Assert.Single(stored.Items).Status);
+        Assert.Empty(await repository.GetTemporaryArtifactsAsync());
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_AfterCompletedIgnoresLaterCancellation()
+    {
+        using var workspace = new TestWorkspace();
+        var repository = CreateRepository(workspace);
+        var task = await repository.CreateActiveAsync(
+            FileTaskType.Upload,
+            [new FileRef("files", "done.txt")],
+            new FileRef("files", string.Empty),
+            FileTaskStatus.Scanning,
+            "scanning",
+            4,
+            1);
+        await repository.TransitionAsync(task.Id, FileTaskStatus.Running, "uploading");
+        var source = new FileRef("files", "done.txt");
+        var artifact = await repository.RegisterTemporaryArtifactAsync(task.Id, new FileRef("files", ".filebrowser-test"));
+
+        Assert.Equal(UploadFinalizeOutcome.Completed, await repository.FinalizePublishedUploadAsync(task.Id, source, artifact.Id));
+        var cancellation = new TaskCancellationService(repository, new TaskCancellationRegistry(), new TaskOperationGate());
+        await cancellation.CancelAsync(task.Id);
+
+        var stored = (await repository.GetAsync(task.Id))!;
+        Assert.Equal(FileTaskStatus.Completed, stored.Status);
+        Assert.Equal(UploadFinalizeOutcome.Completed, await repository.FinalizePublishedUploadAsync(task.Id, source, artifact.Id));
+    }
+
+    [Fact]
+    public void TaskPanel_ProgressNotificationDoesNotRequestHistoryRefresh()
+    {
+        var panel = new dotmeer.filebrowser.Components.Tasks.TaskPanel();
+        InvokeTaskPanelHandler(panel, new TaskChangeNotification(TaskChangeKind.Progress, Guid.NewGuid()));
+
+        Assert.Equal(0, ReadTaskPanelFlag(panel, "_refreshPending"));
+        Assert.Equal(1, ReadTaskPanelFlag(panel, "_activeRefreshPending"));
+    }
+
+    [Fact]
+    public void TaskPanel_CompletionNotificationRequestsFullRefresh()
+    {
+        var panel = new dotmeer.filebrowser.Components.Tasks.TaskPanel();
+        InvokeTaskPanelHandler(panel, new TaskChangeNotification(TaskChangeKind.Updated, Guid.NewGuid()));
+
+        Assert.Equal(1, ReadTaskPanelFlag(panel, "_refreshPending"));
+        Assert.Equal(0, ReadTaskPanelFlag(panel, "_activeRefreshPending"));
+    }
+
+    private static void InvokeTaskPanelHandler(object panel, TaskChangeNotification notification)
+    {
+        var method = panel.GetType().GetMethod(
+            "OnTaskChanged",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(panel, [notification]);
+    }
+
+    private static int ReadTaskPanelFlag(object panel, string fieldName)
+    {
+        var field = panel.GetType().GetField(
+            fieldName,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (int)field!.GetValue(panel)!;
+    }
+
+    [Fact]
+    public async Task Page_LoadsSourcesAndItemsForEveryTaskInOneBatch()
+    {
+        using var workspace = new TestWorkspace();
+        var repository = CreateRepository(workspace);
+        for (var index = 0; index < 50; index++)
+        {
+            await repository.CreateQueuedAsync(
+                FileTaskType.Copy,
+                [new FileRef("files", $"a-{index}.txt"), new FileRef("files", $"b-{index}.txt")],
+                new FileRef("files", "target"));
+        }
+
+        var page = await repository.GetPageAsync(0, 50);
+
+        Assert.Equal(50, page.Tasks.Count);
+        Assert.All(page.Tasks, task =>
+        {
+            Assert.Equal(2, task.Sources.Count);
+            Assert.Equal(2, task.Items.Count);
+            Assert.Equal(task.Sources, task.Items.Select(item => item.Source));
+        });
     }
 
     [Fact]

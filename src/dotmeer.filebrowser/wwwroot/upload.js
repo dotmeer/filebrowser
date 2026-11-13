@@ -1,7 +1,8 @@
 // Browser-side uploader (SPEC §11). File bytes never pass through the
 // Blazor circuit: this script sends them directly with XMLHttpRequest,
-// which is the only API that reports upload progress. Blazor receives
-// only a tiny "uploads changed" event so the listing can be refreshed.
+// which is the only API that reports upload progress. Blazor receives only
+// small state callbacks so it can refresh the listing and reconcile a lost
+// HTTP response with the persisted task outcome.
 (() => {
     const maxConcurrent = 2;
     window.fileBrowser = window.fileBrowser || {};
@@ -25,6 +26,48 @@
     };
 
     const text = (key, fallback) => state.strings[key] || fallback;
+
+    async function getUploadTaskOutcome(item) {
+        if (!state.dotNetRef) {
+            return null;
+        }
+
+        let timeoutId;
+        try {
+            return await Promise.race([
+                state.dotNetRef.invokeMethodAsync("GetUploadTaskOutcome", item.uploadId).catch(() => null),
+                new Promise(resolve => {
+                    timeoutId = setTimeout(() => resolve(null), 2500);
+                })
+            ]);
+        } catch {
+            return null;
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+
+    function newUploadId() {
+        if (window.crypto?.randomUUID) {
+            return window.crypto.randomUUID();
+        }
+
+        const bytes = new Uint8Array(16);
+        if (window.crypto?.getRandomValues) {
+            window.crypto.getRandomValues(bytes);
+        } else {
+            for (let index = 0; index < bytes.length; index += 1) {
+                bytes[index] = Math.floor(Math.random() * 256);
+            }
+        }
+
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
 
     function ensurePanel() {
         if (state.disposed) {
@@ -178,6 +221,10 @@
         }
 
         ensurePanel();
+        // Каждый файл получает назначение в момент выбора: навигация
+        // влияет только на новые элементы очереди, check и POST используют
+        // один и тот же снимок root/path.
+        const destination = { root: state.context.root, path: state.context.path };
         let added = false;
         for (const file of Array.from(files)) {
             if (state.maxFileBytes > 0 && file.size > state.maxFileBytes) {
@@ -198,13 +245,16 @@
 
             const item = {
                 id: ++state.seq,
+                uploadId: newUploadId(),
                 file,
                 status: "waiting",
                 progress: 0,
                 error: null,
                 xhr: null,
                 settled: false,
-                cancelRequested: false
+                cancelRequested: false,
+                root: destination.root,
+                path: destination.path
             };
             state.items.set(item.id, item);
             state.queue.push(item);
@@ -246,8 +296,8 @@
             renderItem(item);
 
             const checkUrl = buildUrl("/api/fs/upload/check", {
-                root: state.context.root,
-                path: state.context.path,
+                root: item.root,
+                path: item.path,
                 name: item.file.name,
                 size: String(item.file.size)
             });
@@ -286,9 +336,10 @@
             const xhr = new XMLHttpRequest();
             item.xhr = xhr;
             xhr.open("POST", buildUrl("/api/fs/upload", {
-                root: state.context.root,
-                path: state.context.path,
-                name: item.file.name
+                root: item.root,
+                path: item.path,
+                name: item.file.name,
+                uploadId: item.uploadId
             }));
             xhr.setRequestHeader("X-CSRF-TOKEN", token);
             xhr.setRequestHeader("Content-Type", "application/octet-stream");
@@ -313,7 +364,19 @@
 
                 settle(item, "failed", problemText(problem, xhr.status));
             });
-            xhr.addEventListener("error", () => {
+            xhr.addEventListener("error", async () => {
+                const outcome = await getUploadTaskOutcome(item);
+                if (outcome === "cancelled") {
+                    settle(item, "cancelled", null);
+                    return;
+                }
+
+                if (outcome === "completed") {
+                    item.progress = 1;
+                    settle(item, "completed", null);
+                    return;
+                }
+
                 settle(item, "failed", text("networkError", "The connection was lost."));
             });
             xhr.addEventListener("abort", () => {
@@ -354,8 +417,18 @@
         }
 
         item.cancelRequested = true;
-        if (item.xhr) {
-            item.xhr.abort();
+        if (item.status === "uploading") {
+            // Пользовательская отмена идёт через сервис задач в Blazor,
+            // а не через XHR abort: обрыв соединения сервер считает
+            // клиентским разрывом, а не отменой.
+            state.dotNetRef
+                ?.invokeMethodAsync("OnUploadCancelRequested", item.uploadId)
+                .catch(() => {});
+            return;
+        }
+
+        if (item.status === "checking") {
+            // Проверка уже в полёте; POST не начнётся после её завершения.
             return;
         }
 

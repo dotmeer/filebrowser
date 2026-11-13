@@ -83,6 +83,24 @@ public sealed class FreeSpaceCheckTests
     }
 
     [Fact]
+    public void Volume_ResolvesActualMountInsteadOfStringRootOnLinux()
+    {
+        if (!OperatingSystem.IsLinux() || !Directory.Exists("/dev/shm"))
+        {
+            return;
+        }
+
+        var regularDirectory = Path.GetTempPath();
+        var shmDirectory = "/dev/shm";
+        var shmNested = Path.Combine(shmDirectory, "filebrowser-volume-test");
+
+        Assert.True(FileSystemVolume.AreOnSameVolume(regularDirectory, Path.Combine(regularDirectory, "nested")));
+        Assert.True(FileSystemVolume.AreOnSameVolume(shmDirectory, shmNested));
+        Assert.False(FileSystemVolume.AreOnSameVolume(regularDirectory, shmDirectory));
+        Assert.True(FileSystemVolume.GetAvailableFreeSpace(shmDirectory) >= 0);
+    }
+
+    [Fact]
     public async Task BuildPlan_MoveAcrossVolumesWithInsufficientSpaceFailsPreflight()
     {
         using var workspace = new TestWorkspace();

@@ -24,8 +24,7 @@ public sealed record PreviewDefinition(PreviewKind Kind, string ContentType);
 /// </summary>
 /// <remarks>
 /// SVG и HTML намеренно отсутствуют: их inline-отдача с того же origin
-/// приводит к XSS (решение D084). Видео и аудио не поддерживаются и не
-/// планируются (SPEC §3, ROADMAP «Намеренно не включено»).
+/// приводит к XSS. Видео и аудио не поддерживаются (SPEC §3).
 /// </remarks>
 public static class PreviewCatalog
 {

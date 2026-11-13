@@ -63,9 +63,16 @@ public sealed record TaskItem(
     long ItemsDone,
     long? ItemsTotal);
 
-public sealed record TemporaryArtifact(long Id, Guid TaskId, FileRef File, DateTimeOffset CreatedAtUtc);
+public sealed record TemporaryArtifact(long Id, Guid? TaskId, FileRef File, DateTimeOffset CreatedAtUtc);
 
 public sealed record TaskPage(IReadOnlyList<FileTask> Tasks, int Offset, int Limit, bool HasMore);
+
+public enum UploadFinalizeOutcome
+{
+    Completed,
+    Cancelled,
+    Unavailable
+}
 
 public sealed class InvalidFileTaskTransitionException(FileTaskStatus from, FileTaskStatus to)
     : InvalidOperationException($"Недопустимый переход состояния задачи: {from} -> {to}.");
@@ -80,6 +87,13 @@ public sealed class FileTaskQueueFullException : Exception
 public sealed class FileTaskNotFoundException : Exception
 {
     public FileTaskNotFoundException() : base("Задача не найдена.")
+    {
+    }
+}
+
+public sealed class FileTaskIdConflictException : Exception
+{
+    public FileTaskIdConflictException() : base("Задача с таким идентификатором уже существует.")
     {
     }
 }

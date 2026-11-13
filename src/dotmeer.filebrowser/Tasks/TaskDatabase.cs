@@ -127,6 +127,32 @@ public sealed class TaskDatabase
             insertMigration.ExecuteNonQuery();
         }
 
+        if (!MigrationApplied(connection, transaction, 3))
+        {
+            // Регистрация временного артефакта переживает очистку истории:
+            // удаление задачи обнуляет task_id, но не удаляет запись об остатке.
+            Execute(connection, transaction, """
+                CREATE TABLE temporary_artifacts_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NULL REFERENCES tasks(id) ON DELETE SET NULL,
+                    root TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    UNIQUE(root, path)
+                );
+                INSERT INTO temporary_artifacts_new(id, task_id, root, path, created_at_utc)
+                SELECT id, task_id, root, path, created_at_utc FROM temporary_artifacts;
+                DROP TABLE temporary_artifacts;
+                ALTER TABLE temporary_artifacts_new RENAME TO temporary_artifacts;
+                """);
+            using var insertMigration = connection.CreateCommand();
+            insertMigration.Transaction = transaction;
+            insertMigration.CommandText = "INSERT INTO schema_migrations(version, applied_at_utc) VALUES ($version, $appliedAtUtc);";
+            insertMigration.Parameters.AddWithValue("$version", 3);
+            insertMigration.Parameters.AddWithValue("$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O"));
+            insertMigration.ExecuteNonQuery();
+        }
+
         transaction.Commit();
     }
 

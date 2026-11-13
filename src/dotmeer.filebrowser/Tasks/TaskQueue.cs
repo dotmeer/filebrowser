@@ -125,19 +125,6 @@ public interface IFileTaskExecutor
     Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken);
 }
 
-public sealed class TaskExecutorNotReadyException : Exception
-{
-    public TaskExecutorNotReadyException() : base("Исполнитель файловых задач ещё не реализован.")
-    {
-    }
-}
-
-public sealed class NotReadyFileTaskExecutor : IFileTaskExecutor
-{
-    public Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken) =>
-        Task.FromException(new TaskExecutorNotReadyException());
-}
-
 public sealed class TaskExecutorHostedService(
     TaskRepository repository,
     TaskQueue queue,

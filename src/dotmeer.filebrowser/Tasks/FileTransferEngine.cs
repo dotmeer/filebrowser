@@ -1,4 +1,5 @@
 using dotmeer.filebrowser.FileSystem;
+using Microsoft.Data.Sqlite;
 
 namespace dotmeer.filebrowser.Tasks;
 
@@ -118,10 +119,10 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
     /// </summary>
     internal virtual bool IsFreeSpaceCheckRequired(FileTask task, ResolvedPath source, ResolvedPath destination) =>
         task.Type == FileTaskType.Copy
-        || !string.Equals(Path.GetPathRoot(source.PhysicalPath), Path.GetPathRoot(destination.PhysicalPath), StringComparison.OrdinalIgnoreCase);
+        || !FileSystemVolume.AreOnSameVolume(source.PhysicalPath, destination.PhysicalPath);
 
     internal virtual long GetAvailableFreeSpace(string physicalPath) =>
-        new DriveInfo(Path.GetPathRoot(physicalPath)!).AvailableFreeSpace;
+        FileSystemVolume.GetAvailableFreeSpace(physicalPath);
 
     internal async Task FailPreflightAsync(FileTask task, FileTransferPlan plan, CancellationToken cancellationToken)
     {
@@ -176,7 +177,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
                 var registered = await repository.RegisterTemporaryArtifactAsync(task.Id, new FileRef(destination.Root, relativePath), cancellationToken);
                 return new TransferArtifact(registered, physicalPath);
             }
-            catch (Exception exception) when (exception.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+            catch (SqliteException exception) when (SqliteErrors.IsUniqueConstraint(exception))
             {
                 // A random name collision is harmless; choose another registered path.
             }

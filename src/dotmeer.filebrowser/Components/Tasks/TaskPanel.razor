@@ -121,6 +121,7 @@
     private bool _jsRegistered;
     private volatile bool _disposed;
     private int _refreshPending;
+    private int _activeRefreshPending;
     private int _refreshActive;
     private int _historyResetRequested;
     private HashSet<Guid> _activeIds = [];
@@ -168,10 +169,18 @@
             Interlocked.Exchange(ref _historyResetRequested, 1);
         }
 
-        ScheduleRefresh();
+        if (notification.Kind == TaskChangeKind.Progress)
+        {
+            // Прогресс меняет только активные счётчики: страницу истории
+            // перечитывает завершение/ошибка/отмена или ручное действие.
+            ScheduleRefresh(fullRefresh: false);
+            return;
+        }
+
+        ScheduleRefresh(fullRefresh: true);
     }
 
-    private void ScheduleRefresh()
+    private void ScheduleRefresh(bool fullRefresh)
     {
         if (_disposed)
         {
@@ -180,7 +189,14 @@
 
         // Coalesce notifications without dropping the last one: if a change
         // arrives while a refresh is running, the loop performs one more pass.
-        Interlocked.Exchange(ref _refreshPending, 1);
+        if (fullRefresh)
+        {
+            Interlocked.Exchange(ref _refreshPending, 1);
+        }
+        else
+        {
+            Interlocked.Exchange(ref _activeRefreshPending, 1);
+        }
         if (Interlocked.CompareExchange(ref _refreshActive, 1, 0) != 0)
         {
             return;
@@ -200,11 +216,26 @@
     {
         try
         {
-            while (!_disposed && Interlocked.Exchange(ref _refreshPending, 0) == 1)
+            while (!_disposed)
             {
+                var fullRefresh = Interlocked.Exchange(ref _refreshPending, 0) == 1;
+                var activeRefresh = Interlocked.Exchange(ref _activeRefreshPending, 0) == 1;
+                if (!fullRefresh && !activeRefresh)
+                {
+                    break;
+                }
+
                 try
                 {
-                    await LoadAsync();
+                    if (fullRefresh)
+                    {
+                        await LoadAsync();
+                    }
+                    else
+                    {
+                        await LoadActiveAsync();
+                    }
+
                     if (!_disposed)
                     {
                         StateHasChanged();
@@ -219,9 +250,13 @@
         finally
         {
             Interlocked.Exchange(ref _refreshActive, 0);
-            if (!_disposed && Interlocked.CompareExchange(ref _refreshPending, 0, 1) == 1)
+            if (!_disposed && Volatile.Read(ref _refreshPending) == 1)
             {
-                ScheduleRefresh();
+                ScheduleRefresh(fullRefresh: true);
+            }
+            else if (!_disposed && Volatile.Read(ref _activeRefreshPending) == 1)
+            {
+                ScheduleRefresh(fullRefresh: false);
             }
         }
     }
@@ -286,6 +321,19 @@
         finally
         {
             _loading = false;
+        }
+    }
+
+    private async Task LoadActiveAsync()
+    {
+        try
+        {
+            _active = await Task.Run(() => Repository.GetActiveAsync());
+            _loadError = null;
+        }
+        catch (Exception)
+        {
+            _loadError = L["Не удалось прочитать состояние задач из SQLite."];
         }
     }
 

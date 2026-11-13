@@ -247,17 +247,16 @@ public sealed class FileSystemSearchService
             return null;
         }
 
-        var isSymlink = (attributes & FileAttributes.ReparsePoint) != 0;
-        var isDevice = (attributes & FileAttributes.Device) != 0;
-        if (isSymlink || isDevice)
+        var entryKind = PathInspection.Classify(node.Path, attributes);
+        if (entryKind is not (FileSystemEntryKind.RegularFile or FileSystemEntryKind.Directory))
         {
             return null;
         }
 
-        FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
+        FileSystemInfo info = entryKind == FileSystemEntryKind.Directory
             ? new DirectoryInfo(node.Path)
             : new FileInfo(node.Path);
-        var kind = (attributes & FileAttributes.Directory) != 0 ? "directory" : "file";
+        var kind = entryKind == FileSystemEntryKind.Directory ? "directory" : "file";
         var name = Path.GetFileName(node.Path);
         var relativePath = Path.GetRelativePath(start.PhysicalPath, node.Path)
             .Replace(Path.DirectorySeparatorChar, '/')

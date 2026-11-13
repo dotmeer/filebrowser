@@ -7,9 +7,12 @@ public sealed class FileTaskExecutor(CopyTaskExecutor copyExecutor, MoveTaskExec
         FileTaskType.Copy => copyExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
         FileTaskType.Move => moveExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
         FileTaskType.Delete => deleteExecutor.ExecuteAsync(task, cancellationToken, shutdownToken),
-        _ => Task.FromException(new TaskExecutorNotReadyException())
+        _ => Task.FromException(new UnsupportedFileTaskTypeException(task.Type))
     };
 }
+
+public sealed class UnsupportedFileTaskTypeException(FileTaskType type)
+    : Exception($"Тип задачи не поддерживается исполнителем: {type}.");
 
 public sealed class CopyTaskExecutor(FileTransferEngine transfer)
 {
