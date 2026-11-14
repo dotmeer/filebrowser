@@ -21,7 +21,8 @@ internal static class TestHostFactory
         string? databasePath = null,
         string? environment = null,
         bool useKestrel = false,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        IReadOnlyDictionary<string, string?>? settings = null)
     {
         var keyDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "data-protection-keys");
         Directory.CreateDirectory(keyDirectory);
@@ -36,6 +37,14 @@ internal static class TestHostFactory
             if (databasePath is not null)
             {
                 builder.UseSetting("DatabasePath", databasePath);
+            }
+
+            if (settings is not null)
+            {
+                foreach (var (key, value) in settings)
+                {
+                    builder.UseSetting(key, value);
+                }
             }
 
             builder.UseSetting("Logging__EventLog__LogLevel__Default", "None");
@@ -71,6 +80,13 @@ internal static class TestHostFactory
             .Features.Get<IServerAddressesFeature>()!.Addresses.Single());
 
         public HttpClient Client { get; } = client;
+
+        public HttpClient CreateClient(bool allowAutoRedirect = true) =>
+            factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = allowAutoRedirect,
+                HandleCookies = true
+            });
 
         public void Dispose()
         {

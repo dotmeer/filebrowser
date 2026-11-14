@@ -22,7 +22,7 @@ window.fileBrowser = {
     // возвращаются только метаданные; через Blazor circuit содержимое
     // файла не передаётся.
     renderPreviewText: async (element, url, requestId) => {
-        if (!element) {
+        if (!(element instanceof Element) || !element.isConnected) {
             return { ok: false, truncated: false, obsolete: true };
         }
 
@@ -43,7 +43,7 @@ window.fileBrowser = {
             }
 
             const text = await response.text();
-            if (controller.signal.aborted || element.dataset.previewRequest !== String(requestId)) {
+            if (controller.signal.aborted || !element.isConnected || element.dataset.previewRequest !== String(requestId)) {
                 return { ok: false, truncated: false, obsolete: true };
             }
 
@@ -70,7 +70,7 @@ window.fileBrowser = {
     },
 
     clearPreviewText: (element) => {
-        if (!element) {
+        if (!(element instanceof Element)) {
             return;
         }
 
@@ -80,7 +80,9 @@ window.fileBrowser = {
             previewTextControllers.delete(element);
         }
 
-        element.replaceChildren();
+        if (element.isConnected) {
+            element.replaceChildren();
+        }
     },
 
     registerReconnectRefresh: (dotNetReference) => {

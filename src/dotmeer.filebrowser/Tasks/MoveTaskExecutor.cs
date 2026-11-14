@@ -1,12 +1,17 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.FileSystem;
 
 namespace dotmeer.filebrowser.Tasks;
 
-public sealed class MoveTaskExecutor(FileTransferEngine transfer)
+public sealed class MoveTaskExecutor(FileTransferEngine transfer, TaskAccessService? accessService = null)
 {
-    public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken)
+    public async Task ExecuteAsync(
+        FileTask task,
+        CancellationToken cancellationToken,
+        CancellationToken shutdownToken,
+        FileActor? actor = null)
     {
-        var plan = transfer.BuildPlan(task, cancellationToken);
+        var plan = transfer.BuildPlan(task, cancellationToken, actor);
         await transfer.FailPreflightAsync(task, plan, cancellationToken);
         var progress = await transfer.StartRunningAsync(task, plan, cancellationToken);
         var destination = plan.Destination!;
@@ -17,6 +22,12 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
             TransferArtifact? artifact = null;
             try
             {
+                // Права автора перечитываются до начала следующего объекта.
+                if (accessService is not null)
+                {
+                    await accessService.EnsureEntryAsync(task, entry.SourcePath, destination, cancellationToken);
+                }
+
                 if (transfer.TryRenameEntry(entry))
                 {
                     await progress.ItemCompletedInstantlyAsync(entry.Bytes, entry.ItemCount, CancellationToken.None);
@@ -25,6 +36,13 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
                 {
                     artifact = await transfer.CreateTemporaryArtifactAsync(task, destination, entry.Name, cancellationToken);
                     await transfer.CopyEntryAsync(entry, artifact.PhysicalPath, progress, cancellationToken);
+                    // Проверка перед публикацией: отзыв прав оставляет конечное
+                    // имя свободным, источник цел, временный объект удаляется.
+                    if (accessService is not null)
+                    {
+                        await accessService.EnsureEntryAsync(task, entry.SourcePath, destination, cancellationToken);
+                    }
+
                     // Критическая секция: публикация, снятие регистрации и удаление
                     // источника не прерываются отменой.
                     FileTransferEngine.Publish(artifact.PhysicalPath, entry.FinalPhysicalPath, entry.SourcePath.IsDirectory);
@@ -35,6 +53,18 @@ public sealed class MoveTaskExecutor(FileTransferEngine transfer)
                 }
 
                 await transfer.CompleteItemAsync(task.Id, entry, CancellationToken.None);
+            }
+            catch (FileTaskAccessRevokedException)
+            {
+                if (artifact is not null)
+                {
+                    await transfer.CleanupArtifactAsync(artifact, CancellationToken.None);
+                }
+
+                await transfer.RevokeItemAsync(task.Id, entry, CancellationToken.None);
+                await transfer.SkipRemainingAsync(task.Id, plan, index, FileTaskErrorCodes.AccessDenied, CancellationToken.None);
+                await progress.ReportAsync(force: true, CancellationToken.None);
+                throw;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {

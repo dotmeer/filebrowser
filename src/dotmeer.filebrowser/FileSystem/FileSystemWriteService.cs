@@ -1,3 +1,5 @@
+using dotmeer.filebrowser.Access;
+
 namespace dotmeer.filebrowser.FileSystem;
 
 public sealed class FileSystemWriteService(PathResolver pathResolver)
@@ -6,9 +8,20 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
 
     private static readonly object[] DestinationLocks = CreateDestinationLockPool();
 
-    public FileRef CreateDirectory(FileRef parent, string name)
+    public FileRef CreateDirectory(FileRef parent, string name, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
+        var parentCandidate = pathResolver.ResolveCandidate(parent);
+        access.EnsureWritablePathCandidate(parentCandidate);
+        PathResolver.ValidateNewName(name);
+        var childCandidate = pathResolver.ResolveCandidate(new FileRef(parentCandidate.Root,
+            string.IsNullOrEmpty(parentCandidate.RelativePath) ? name : $"{parentCandidate.RelativePath}/{name}"));
+        access.EnsureNotProtectedDestination(childCandidate.PhysicalPath);
         var destination = pathResolver.ResolveNewChild(parent, name);
+        var parentPhysicalPath = Path.GetDirectoryName(destination.PhysicalPath)
+            ?? throw new InvalidFileSystemRequestException("Не удалось определить каталог назначения.");
+        access.EnsureWritablePath(destination.Root, parentPhysicalPath);
+        access.EnsureNotProtectedDestination(destination.PhysicalPath);
         lock (GetDestinationLock(destination.PhysicalPath))
         {
             EnsureDestinationDoesNotExist(destination.PhysicalPath);
@@ -18,11 +31,21 @@ public sealed class FileSystemWriteService(PathResolver pathResolver)
         return new FileRef(destination.Root, destination.RelativePath);
     }
 
-    public FileRef Rename(FileRef source, string newName)
+    public FileRef Rename(FileRef source, string newName, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
+        access.EnsureMutableReference(pathResolver, source);
         var resolvedSource = ResolveMutableSource(source);
+        access.EnsureMutableBranch(resolvedSource.Root, resolvedSource.PhysicalPath);
         var parentPath = GetParentPath(resolvedSource.RelativePath);
-        var destination = pathResolver.ResolveNewChild(new FileRef(resolvedSource.Root, parentPath), newName);
+        PathResolver.ValidateNewName(newName);
+        var parentRef = new FileRef(resolvedSource.Root, parentPath);
+        access.EnsureWritableReference(pathResolver, parentRef);
+        var destinationCandidate = pathResolver.ResolveCandidate(new FileRef(resolvedSource.Root,
+            string.IsNullOrEmpty(parentPath) ? newName : $"{parentPath}/{newName}"));
+        access.EnsureNotProtectedDestination(destinationCandidate.PhysicalPath);
+        var destination = pathResolver.ResolveNewChild(parentRef, newName);
+        access.EnsureNotProtectedDestination(destination.PhysicalPath);
 
         lock (GetDestinationLock(destination.PhysicalPath))
         {
@@ -117,6 +140,10 @@ public sealed class FileSystemNameConflictException : FileSystemResolutionExcept
 
 public sealed class FileSystemAccessDeniedException : FileSystemResolutionException
 {
+    public FileSystemAccessDeniedException(string message) : base(message)
+    {
+    }
+
     public FileSystemAccessDeniedException(string message, Exception innerException) : base(message, innerException)
     {
     }

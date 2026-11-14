@@ -77,6 +77,31 @@ public class PathResolverTests
     }
 
     [Fact]
+    public void ReservedTemporaryArtifactName_UsesPlatformFilesystemCaseRules()
+    {
+        Assert.True(PathResolver.IsReservedTemporaryArtifactName(".filebrowser-tmp"));
+        Assert.Equal(OperatingSystem.IsWindows(), PathResolver.IsReservedTemporaryArtifactName(".FILEBROWSER-tmp"));
+
+        if (OperatingSystem.IsWindows())
+        {
+            using var workspace = new TestWorkspace();
+            var resolver = CreateResolver(workspace);
+            Assert.Throws<InvalidFileSystemRequestException>(() =>
+                resolver.ResolveNewChild(new FileRef("files", string.Empty), ".FILEBROWSER-created"));
+        }
+        else
+        {
+            using var workspace = new TestWorkspace();
+            File.WriteAllText(Path.Combine(workspace.RootPath, ".FILEBROWSER-visible"), "ordinary");
+            var resolver = CreateResolver(workspace);
+            Assert.True(PathResolver.IsReservedTemporaryArtifactName(".filebrowser-visible"));
+            Assert.False(PathResolver.IsReservedTemporaryArtifactName(".FILEBROWSER-visible"));
+            Assert.Equal(".FILEBROWSER-visible", resolver.ResolveExisting(
+                new FileRef("files", ".FILEBROWSER-visible")).RelativePath);
+        }
+    }
+
+    [Fact]
     public void ResolveExisting_RejectsIntermediateSymlink()
     {
         using var workspace = new TestWorkspace();

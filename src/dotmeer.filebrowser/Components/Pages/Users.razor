@@ -1,0 +1,501 @@
+@page "/users"
+@attribute [Authorize(Policy = AuthPolicies.Application)]
+@rendermode InteractiveServer
+@using dotmeer.filebrowser.Configuration
+@inject IStringLocalizer<SharedResources> L
+@inject UserAdministrationService Administration
+@inject AccessGuard Access
+@inject NavigationManager Navigation
+@inject FileBrowserConfiguration Configuration
+
+<PageTitle>@L["Users_Title"]</PageTitle>
+
+<section class="settings-page">
+    <div class="settings-header">
+        <button class="settings-close" type="button" aria-label="@L["Settings_Close"]" title="@L["Settings_Close"]" data-nav-back>✕</button>
+        <h1>@L["Users_Title"]</h1>
+    </div>
+
+    @if (_error is not null)
+    {
+        <p class="dialog-error" role="alert">@_error</p>
+    }
+
+    @if (_status is not null)
+    {
+        <p class="task-note" role="status">@_status</p>
+    }
+
+    <section class="settings-section" aria-labelledby="users-create-heading">
+        <h2 id="users-create-heading">@L["Users_CreateTitle"]</h2>
+        <p class="muted">@L["Users_CreateDescription"]</p>
+
+        <div class="auth-form">
+            <label for="new-user-login">@L["Users_Login"]</label>
+            <input id="new-user-login" class="form-control" @bind="_newLogin" disabled="@_busy" autocomplete="off" />
+
+            <label for="new-user-password">@L["Users_TempPassword"]</label>
+            <input id="new-user-password" class="form-control" type="password" @bind="_newPassword"
+                   disabled="@_busy" autocomplete="new-password" />
+
+            <label for="new-user-password-confirm">@L["Users_PasswordConfirm"]</label>
+            <input id="new-user-password-confirm" class="form-control" type="password" @bind="_newPasswordConfirmation"
+                   disabled="@_busy" autocomplete="new-password" />
+
+            <h3 class="users-rights-heading">@L["Users_Rights"]</h3>
+            @foreach (var root in Configuration.Roots)
+            {
+                <label for="@($"new-right-{root.Name}")">@root.Name</label>
+                <select id="@($"new-right-{root.Name}")" class="form-select" disabled="@_busy"
+                        value="@GetRight(_newRights, root.Name)"
+                        @onchange="args => SetRight(_newRights, root.Name, args.Value?.ToString())">
+                    <option value="none">@L["Users_RightsNone"]</option>
+                    <option value="read">@L["Users_RightsRead"]</option>
+                    <option value="write">@L["Users_RightsWrite"]</option>
+                </select>
+            }
+
+            <button class="btn btn-primary" type="button" @onclick="CreateUserAsync" disabled="@_busy">
+                @L["Users_Create"]
+            </button>
+        </div>
+    </section>
+
+    <section class="settings-section" aria-labelledby="users-list-heading">
+        <h2 id="users-list-heading">@L["Users_ListTitle"]</h2>
+
+        @if (_users.Count == 0)
+        {
+            <p class="muted">@L["Users_Empty"]</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th scope="col">@L["Users_Login"]</th>
+                            <th scope="col">@L["Users_Role"]</th>
+                            <th scope="col">@L["Users_Status"]</th>
+                            <th scope="col">@L["Users_Rights"]</th>
+                            <th scope="col"><span class="visually-hidden">@L["Users_Actions"]</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in _users)
+                        {
+                            <tr @key="user.Id">
+                                <td>@user.Login</td>
+                                <td>@(user.IsAdmin ? L["Users_RoleAdmin"] : L["Users_RoleUser"])</td>
+                                <td>@(user.MustChangePassword ? L["Users_StatusTemporary"] : L["Users_StatusActive"])</td>
+                                <td>@FormatRights(user)</td>
+                                <td class="users-actions">
+                                    @if (user.IsAdmin)
+                                    {
+                                        <span class="muted">@L["Users_AllRoots"]</span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline-secondary btn-sm" type="button"
+                                                @onclick="() => OpenRights(user)" disabled="@_busy">
+                                            @L["Users_EditRights"]
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="button"
+                                                @onclick="() => OpenReset(user)" disabled="@_busy">
+                                            @L["Users_ResetPassword"]
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" type="button"
+                                                @onclick="() => OpenDelete(user)" disabled="@_busy">
+                                            @L["Users_Delete"]
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    @if (_dialog is not null)
+    {
+        <div class="dialog-backdrop">
+            <section class="file-dialog" role="dialog" aria-modal="true" aria-labelledby="users-dialog-title">
+                @if (_dialog == DialogKind.Rights)
+                {
+                    <h2 id="users-dialog-title">@L["Users_RightsTitle", _dialogLogin]</h2>
+                    @foreach (var root in Configuration.Roots)
+                    {
+                        <label for="@($"edit-right-{root.Name}")">@root.Name</label>
+                        <select id="@($"edit-right-{root.Name}")" class="form-select" disabled="@_busy"
+                                value="@GetRight(_editRights, root.Name)"
+                                @onchange="args => SetRight(_editRights, root.Name, args.Value?.ToString())">
+                            <option value="none">@L["Users_RightsNone"]</option>
+                            <option value="read">@L["Users_RightsRead"]</option>
+                            <option value="write">@L["Users_RightsWrite"]</option>
+                        </select>
+                    }
+                }
+                else if (_dialog == DialogKind.Reset)
+                {
+                    <h2 id="users-dialog-title">@L["Users_ResetTitle", _dialogLogin]</h2>
+                    <label for="reset-password">@L["Users_NewPassword"]</label>
+                    <input id="reset-password" class="form-control" type="password" @bind="_resetPassword"
+                           disabled="@_busy" autocomplete="new-password" />
+                    <label for="reset-password-confirm">@L["Users_PasswordConfirm"]</label>
+                    <input id="reset-password-confirm" class="form-control" type="password" @bind="_resetPasswordConfirmation"
+                           disabled="@_busy" autocomplete="new-password" />
+                    <p class="dialog-hint">@L["Users_ResetHint"]</p>
+                }
+                else
+                {
+                    <h2 id="users-dialog-title">@L["Users_Delete"]</h2>
+                    <p class="dialog-warning">@L["Users_DeleteConfirm", _dialogLogin]</p>
+                    <p class="dialog-hint">@L["Users_DeleteWarning"]</p>
+                }
+
+                <div class="dialog-actions">
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseDialog" disabled="@_busy">
+                        @L["Users_Cancel"]
+                    </button>
+                    @if (_dialog == DialogKind.Rights)
+                    {
+                        <button class="btn btn-primary" type="button" @onclick="SaveRightsAsync" disabled="@_busy">
+                            @L["Users_Save"]
+                        </button>
+                    }
+                    else if (_dialog == DialogKind.Reset)
+                    {
+                        <button class="btn btn-primary" type="button" @onclick="ResetPasswordAsync" disabled="@_busy">
+                            @L["Users_ResetPassword"]
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-danger" type="button" @onclick="DeleteUserAsync" disabled="@_busy">
+                            @L["Users_Delete"]
+                        </button>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+</section>
+
+@code {
+    private enum DialogKind
+    {
+        Rights,
+        Reset,
+        Delete
+    }
+
+    private IReadOnlyList<ManagedUser> _users = [];
+    private Dictionary<string, RootAccess> _newRights = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, RootAccess> _editRights = new(StringComparer.OrdinalIgnoreCase);
+    private string _newLogin = string.Empty;
+    private string _newPassword = string.Empty;
+    private string _newPasswordConfirmation = string.Empty;
+    private string _resetPassword = string.Empty;
+    private string _resetPasswordConfirmation = string.Empty;
+    private DialogKind? _dialog;
+    private Guid _dialogUserId;
+    private string _dialogLogin = string.Empty;
+    private bool _busy;
+    private string? _error;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ResetNewRights();
+        var level = await Access.GetAccessLevelAsync();
+        if (level != AccessLevel.Full)
+        {
+            Navigation.NavigateTo(AccessGuard.GetRedirectPath(level), forceLoad: true);
+            return;
+        }
+
+        if (!await Access.IsAdminAsync())
+        {
+            Navigation.NavigateTo("/access-denied", forceLoad: true);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var principal = await Access.GetPrincipalAsync();
+        var result = await Administration.ListAsync(principal, CancellationToken.None);
+        if (!result.Allowed)
+        {
+            Navigation.NavigateTo("/access-denied", forceLoad: true);
+            return;
+        }
+
+        _users = result.Users;
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_newLogin))
+        {
+            _error = L["Users_Error_LoginRequired"];
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _error = L["Users_Error_PasswordRequired"];
+            return;
+        }
+
+        if (!string.Equals(_newPassword, _newPasswordConfirmation, StringComparison.Ordinal))
+        {
+            _error = L["Users_Error_PasswordMismatch"];
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var principal = await Access.GetPrincipalAsync();
+            var result = await Administration.CreateAsync(
+                principal, _newLogin, _newPassword, Snapshot(_newRights), CancellationToken.None);
+            if (await HandleOutcomeAsync(result))
+            {
+                _status = L["Users_Created"];
+                _newLogin = string.Empty;
+                _newPassword = string.Empty;
+                _newPasswordConfirmation = string.Empty;
+                ResetNewRights();
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveRightsAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var principal = await Access.GetPrincipalAsync();
+            var result = await Administration.UpdateRightsAsync(
+                principal, _dialogUserId, Snapshot(_editRights), CancellationToken.None);
+            if (await HandleOutcomeAsync(result))
+            {
+                _status = L["Users_RightsSaved"];
+                _dialog = null;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_resetPassword))
+        {
+            _error = L["Users_Error_PasswordRequired"];
+            return;
+        }
+
+        if (!string.Equals(_resetPassword, _resetPasswordConfirmation, StringComparison.Ordinal))
+        {
+            _error = L["Users_Error_PasswordMismatch"];
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var principal = await Access.GetPrincipalAsync();
+            var result = await Administration.ResetPasswordAsync(
+                principal, _dialogUserId, _resetPassword, CancellationToken.None);
+            if (await HandleOutcomeAsync(result))
+            {
+                _status = L["Users_PasswordReset"];
+                _dialog = null;
+                _resetPassword = string.Empty;
+                _resetPasswordConfirmation = string.Empty;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteUserAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var principal = await Access.GetPrincipalAsync();
+            var result = await Administration.DeleteAsync(principal, _dialogUserId, CancellationToken.None);
+            if (await HandleOutcomeAsync(result))
+            {
+                _status = L["Users_Deleted"];
+                _dialog = null;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<bool> HandleOutcomeAsync(UserManagementResult result)
+    {
+        switch (result.Outcome)
+        {
+            case UserManagementOutcome.Success:
+                return true;
+            case UserManagementOutcome.Denied:
+                Navigation.NavigateTo("/access-denied", forceLoad: true);
+                return false;
+            default:
+                _error = result.Outcome switch
+                {
+                    UserManagementOutcome.InvalidLogin => L["Users_Error_InvalidLogin"].Value,
+                    UserManagementOutcome.DuplicateLogin => L["Users_Error_DuplicateLogin"].Value,
+                    UserManagementOutcome.PasswordRequired => L["Users_Error_PasswordRequired"].Value,
+                    UserManagementOutcome.AdminProtected => L["Users_Error_AdminProtected"].Value,
+                    UserManagementOutcome.UserNotFound => L["Users_Error_UserNotFound"].Value,
+                    _ => L["Users_Error_Generic"].Value
+                };
+                return false;
+        }
+    }
+
+    private void OpenRights(ManagedUser user)
+    {
+        _dialog = DialogKind.Rights;
+        _dialogUserId = user.Id;
+        _dialogLogin = user.Login;
+        _editRights = new Dictionary<string, RootAccess>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in Configuration.Roots)
+        {
+            _editRights[root.Name] = user.Rights.TryGetValue(root.Name, out var access)
+                ? access
+                : RootAccess.None;
+        }
+
+        _error = null;
+        _status = null;
+    }
+
+    private void OpenReset(ManagedUser user)
+    {
+        _dialog = DialogKind.Reset;
+        _dialogUserId = user.Id;
+        _dialogLogin = user.Login;
+        _resetPassword = string.Empty;
+        _resetPasswordConfirmation = string.Empty;
+        _error = null;
+        _status = null;
+    }
+
+    private void OpenDelete(ManagedUser user)
+    {
+        _dialog = DialogKind.Delete;
+        _dialogUserId = user.Id;
+        _dialogLogin = user.Login;
+        _error = null;
+        _status = null;
+    }
+
+    private void CloseDialog()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _dialog = null;
+        _error = null;
+    }
+
+    private void ResetNewRights()
+    {
+        _newRights = new Dictionary<string, RootAccess>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in Configuration.Roots)
+        {
+            _newRights[root.Name] = RootAccess.None;
+        }
+    }
+
+    private static Dictionary<string, RootAccess> Snapshot(IReadOnlyDictionary<string, RootAccess> rights) =>
+        new(rights, StringComparer.OrdinalIgnoreCase);
+
+    private static string GetRight(IReadOnlyDictionary<string, RootAccess> rights, string rootName) =>
+        rights.TryGetValue(rootName, out var access)
+            ? access switch
+            {
+                RootAccess.Read => "read",
+                RootAccess.Write => "write",
+                _ => "none"
+            }
+            : "none";
+
+    private static void SetRight(Dictionary<string, RootAccess> rights, string rootName, string? value) =>
+        rights[rootName] = value switch
+        {
+            "read" => RootAccess.Read,
+            "write" => RootAccess.Write,
+            _ => RootAccess.None
+        };
+
+    private string FormatRights(ManagedUser user)
+    {
+        if (user.IsAdmin)
+        {
+            return L["Users_AllRoots"];
+        }
+
+        var entries = Configuration.Roots
+            .Where(root => user.Rights.TryGetValue(root.Name, out var access) && access != RootAccess.None)
+            .Select(root => $"{root.Name}: {(user.Rights[root.Name] == RootAccess.Write ? L["Users_RightsWriteShort"] : L["Users_RightsReadShort"])}")
+            .ToArray();
+        return entries.Length == 0 ? L["Users_RightsNone"] : string.Join(", ", entries);
+    }
+}

@@ -1,3 +1,5 @@
+using dotmeer.filebrowser.Access;
+using dotmeer.filebrowser.Auth;
 using dotmeer.filebrowser.FileSystem;
 using Microsoft.Extensions.Localization;
 using Microsoft.Net.Http.Headers;
@@ -22,13 +24,27 @@ public static class PreviewEndpoint
                 string? root,
                 string? path,
                 FileSystemReadService reader,
+                AuthOptions authOptions,
+                AuthService auth,
+                FileAccessService fileAccess,
                 HttpContext httpContext,
                 IStringLocalizer<SharedResources> localizer,
                 ILoggerFactory loggerFactory) =>
             {
+                if (await HttpAccess.RejectIfDeniedAsync(httpContext, authOptions, auth, localizer) is { } denied)
+                {
+                    return denied;
+                }
+
+                if (authOptions.IsLocal)
+                {
+                    httpContext.Response.Headers.CacheControl = "no-store";
+                }
+
+                var actor = await fileAccess.CreateAsync(httpContext.User, httpContext.RequestAborted);
                 try
                 {
-                    var file = reader.OpenFile(new FileRef(root ?? string.Empty, path ?? string.Empty));
+                    var file = reader.OpenFile(new FileRef(root ?? string.Empty, path ?? string.Empty), actor);
                     var definition = PreviewCatalog.Find(file.Name);
                     if (definition is null)
                     {

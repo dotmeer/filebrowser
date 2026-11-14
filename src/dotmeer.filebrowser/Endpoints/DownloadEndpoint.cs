@@ -1,3 +1,5 @@
+using dotmeer.filebrowser.Access;
+using dotmeer.filebrowser.Auth;
 using dotmeer.filebrowser.FileSystem;
 using Microsoft.Extensions.Localization;
 
@@ -18,17 +20,31 @@ public static class DownloadEndpoint
 {
     public static void MapDownload(this WebApplication app)
     {
-        app.MapGet("/api/fs/download", (
+        app.MapGet("/api/fs/download", async (
                 string? root,
                 string? path,
                 FileSystemReadService reader,
+                AuthOptions authOptions,
+                AuthService auth,
+                FileAccessService fileAccess,
                 HttpContext httpContext,
                 IStringLocalizer<SharedResources> localizer,
                 ILoggerFactory loggerFactory) =>
             {
+                if (await HttpAccess.RejectIfDeniedAsync(httpContext, authOptions, auth, localizer) is { } denied)
+                {
+                    return denied;
+                }
+
+                if (authOptions.IsLocal)
+                {
+                    httpContext.Response.Headers.CacheControl = "no-store";
+                }
+
+                var actor = await fileAccess.CreateAsync(httpContext.User, httpContext.RequestAborted);
                 try
                 {
-                    var file = reader.OpenFile(new FileRef(root ?? string.Empty, path ?? string.Empty));
+                    var file = reader.OpenFile(new FileRef(root ?? string.Empty, path ?? string.Empty), actor);
                     return Results.File(
                         file.Stream,
                         contentType: "application/octet-stream",

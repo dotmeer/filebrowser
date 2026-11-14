@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using dotmeer.filebrowser.Access;
 using Microsoft.AspNetCore.WebUtilities;
 
 namespace dotmeer.filebrowser.Archive;
@@ -53,12 +54,21 @@ public sealed class ArchiveTicketStore
     /// <summary>
     /// Забрать выбор по тикету. Тикет допускает повторное использование
     /// в пределах TTL: прерванное скачивание не поддерживает докачку,
-    /// но повторная попытка должна работать без возврата в UI.
+    /// но повторная попытка должна работать без возврата в UI. Чужой тикет
+    /// (в LOCAL) ведёт себя как отсутствующий.
     /// </summary>
-    public bool TryRedeem(string token, out ArchiveSelection selection)
+    public bool TryRedeem(string token, out ArchiveSelection selection) =>
+        TryRedeem(token, FileActor.Unrestricted, out selection);
+
+    public bool TryRedeem(string token, FileActor actor, out ArchiveSelection selection)
     {
         selection = null!;
         if (string.IsNullOrEmpty(token) || !_tickets.TryGetValue(token, out var ticket))
+        {
+            return false;
+        }
+
+        if (ticket.Selection.CreatorUserId != actor.UserId)
         {
             return false;
         }

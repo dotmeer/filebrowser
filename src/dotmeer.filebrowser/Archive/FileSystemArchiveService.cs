@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text;
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.FileSystem;
 
 namespace dotmeer.filebrowser.Archive;
@@ -16,7 +17,6 @@ namespace dotmeer.filebrowser.Archive;
 public sealed class FileSystemArchiveService
 {
     private const int CopyBufferSize = 128 * 1024;
-    private const string TemporaryArtifactPrefix = ".filebrowser-";
     private static readonly DateTimeOffset MinimumZipTimestamp = new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset MaximumZipTimestamp = new(2107, 12, 31, 23, 59, 58, TimeSpan.Zero);
 
@@ -51,10 +51,15 @@ public sealed class FileSystemArchiveService
     /// Любая ошибка (symlink, спецфайл, исчезнувший объект, лимит)
     /// прерывает предпроверку: частичный архив не формируется.
     /// </summary>
-    public ArchivePlan Plan(FileRef baseFolder, IReadOnlyList<string> names, CancellationToken cancellationToken)
+    public ArchivePlan Plan(
+        FileRef baseFolder,
+        IReadOnlyList<string> names,
+        CancellationToken cancellationToken,
+        FileActor? actor = null)
     {
         ArgumentNullException.ThrowIfNull(names);
         cancellationToken.ThrowIfCancellationRequested();
+        var access = actor ?? FileActor.Unrestricted;
 
         // Виртуальный корень «Все корни» делегируется реальному, как при
         // скачивании файла (SPEC §7.1, §12.2). В самом списке корней
@@ -81,7 +86,9 @@ public sealed class FileSystemArchiveService
             }
         }
 
+        access.EnsureReadableReference(_pathResolver, baseFolder);
         var resolvedBase = _pathResolver.ResolveExisting(baseFolder);
+        access.EnsureReadablePath(resolvedBase.Root, resolvedBase.PhysicalPath);
         if (!resolvedBase.IsDirectory)
         {
             throw new InvalidFileSystemRequestException(
@@ -95,7 +102,12 @@ public sealed class FileSystemArchiveService
         if (names.Count == 1)
         {
             PathResolver.ValidateNewName(names[0]);
-            var candidate = _pathResolver.ResolveExisting(BuildChildRef(resolvedBase, names[0]));
+            var childRef = BuildChildRef(resolvedBase, names[0]);
+            var childCandidate = _pathResolver.ResolveCandidate(childRef);
+            EnsureSelectionAllowed(childCandidate.PhysicalPath, access);
+            access.EnsureReadablePathCandidate(childCandidate);
+            var candidate = _pathResolver.ResolveExisting(childRef);
+            access.EnsureReadablePath(candidate.Root, candidate.PhysicalPath);
             if (candidate.IsDirectory)
             {
                 resolvedBase = candidate;
@@ -109,7 +121,7 @@ public sealed class FileSystemArchiveService
 
         try
         {
-            foreach (var item in ResolveTopLevelItems(resolvedBase, names, startedAt, cancellationToken))
+            foreach (var item in ResolveTopLevelItems(resolvedBase, names, startedAt, cancellationToken, access))
             {
                 EnsurePreflightBudget(startedAt, cancellationToken);
                 foreach (var node in FileSystemTreeWalker.EnumerateValidated(
@@ -119,7 +131,7 @@ public sealed class FileSystemArchiveService
                 {
                     EnsurePreflightBudget(startedAt, cancellationToken);
 
-                    if (IsTemporaryArtifactName(Path.GetFileName(node.Path)))
+                    if (PathResolver.IsReservedTemporaryArtifactName(Path.GetFileName(node.Path)))
                     {
                         continue;
                     }
@@ -238,7 +250,8 @@ public sealed class FileSystemArchiveService
         ResolvedPath baseDirectory,
         IReadOnlyList<string> names,
         long startedAt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FileActor access)
     {
         if (names.Count == 0)
         {
@@ -249,10 +262,12 @@ public sealed class FileSystemArchiveService
             {
                 EnsurePreflightBudget(startedAt, cancellationToken);
                 var childName = Path.GetFileName(child);
-                if (IsTemporaryArtifactName(childName))
+                if (PathResolver.IsReservedTemporaryArtifactName(childName))
                 {
                     continue;
                 }
+
+                EnsureSelectionAllowed(child, access);
 
                 if (++count > ArchiveLimits.MaxEntries)
                 {
@@ -281,8 +296,26 @@ public sealed class FileSystemArchiveService
                 continue;
             }
 
-            var resolved = _pathResolver.ResolveExisting(BuildChildRef(baseDirectory, name));
+            var childRef = BuildChildRef(baseDirectory, name);
+            var childCandidate = _pathResolver.ResolveCandidate(childRef);
+            EnsureSelectionAllowed(childCandidate.PhysicalPath, access);
+            access.EnsureReadablePathCandidate(childCandidate);
+            var resolved = _pathResolver.ResolveExisting(childRef);
+            EnsureSelectionAllowed(resolved.PhysicalPath, access);
             yield return new TopLevelItem(name, resolved.PhysicalPath);
+        }
+    }
+
+    /// <summary>
+    /// Закрытая служебная ветка не может быть выбрана ни сама, ни как
+    /// предок: архив с рекурсивным выбором такого предка отклоняется целиком.
+    /// </summary>
+    private static void EnsureSelectionAllowed(string physicalPath, FileActor access)
+    {
+        if (access.IsProtectedPath(physicalPath) || access.ContainsProtectedPath(physicalPath))
+        {
+            throw new FileSystemAccessDeniedException(
+                "Недостаточно прав для скачивания служебного каталога или его предка.");
         }
     }
 
@@ -331,10 +364,7 @@ public sealed class FileSystemArchiveService
     }
 
     private static bool ShouldDescend(string directoryPath) =>
-        !IsTemporaryArtifactName(Path.GetFileName(directoryPath));
-
-    private static bool IsTemporaryArtifactName(string name) =>
-        name.StartsWith(TemporaryArtifactPrefix, StringComparison.Ordinal);
+        !PathResolver.IsReservedTemporaryArtifactName(Path.GetFileName(directoryPath));
 
     private static string BuildArchiveName(ResolvedPath baseDirectory)
     {

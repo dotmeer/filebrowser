@@ -24,6 +24,8 @@ public static class FileTaskErrorCodes
     public const string SkippedAfterError = "skipped_after_error";
     public const string OperationFailed = "operation_failed";
     public const string OperationAccessDenied = "operation_access_denied";
+    /// <summary>Права автора задачи отозваны или учётная запись удалена.</summary>
+    public const string AccessDenied = "access_denied";
     public const string IoError = "io_error";
     public const string MoveSourceNotDeleted = "move_source_not_deleted";
     public const string ExecutorFailed = "executor_failed";

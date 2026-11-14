@@ -21,9 +21,17 @@ public sealed class TaskCancellationRegistry
 
     private readonly object _gate = new();
     private readonly Dictionary<Guid, CancellationTokenSource> _sources = new();
-    private readonly Dictionary<Guid, DateTimeOffset> _pending = new();
+    private readonly Dictionary<Guid, Guid?> _sourceOwners = new();
+    private readonly Dictionary<(Guid TaskId, Guid? RequesterUserId), PendingCancel> _pending = new();
 
-    public CancellationTokenSource Register(Guid taskId)
+    public CancellationTokenSource Register(Guid taskId) => Register(taskId, requesterUserId: null);
+
+    /// <summary>
+    /// Регистрирует источник отмены. Ожидающий запрос применяется, только
+    /// если он сделан системным доступом (admin/ANONYMOUS) или тем же
+    /// пользователем; чужая заявка не отменяет чужую загрузку.
+    /// </summary>
+    public CancellationTokenSource Register(Guid taskId, Guid? requesterUserId)
     {
         lock (_gate)
         {
@@ -32,10 +40,8 @@ public sealed class TaskCancellationRegistry
             {
                 source = new CancellationTokenSource();
                 _sources[taskId] = source;
-                if (_pending.Remove(taskId))
-                {
-                    source.Cancel();
-                }
+                _sourceOwners[taskId] = requesterUserId;
+                ApplyPending(taskId, requesterUserId, source);
             }
 
             return source;
@@ -47,7 +53,10 @@ public sealed class TaskCancellationRegistry
     /// Параллельный запрос с тем же uploadId получает false и не должен
     /// освобождать чужой источник.
     /// </summary>
-    public bool TryRegister(Guid taskId, [NotNullWhen(true)] out CancellationTokenSource? source)
+    public bool TryRegister(Guid taskId, [NotNullWhen(true)] out CancellationTokenSource? source) =>
+        TryRegister(taskId, requesterUserId: null, out source);
+
+    public bool TryRegister(Guid taskId, Guid? requesterUserId, [NotNullWhen(true)] out CancellationTokenSource? source)
     {
         lock (_gate)
         {
@@ -60,10 +69,8 @@ public sealed class TaskCancellationRegistry
 
             source = new CancellationTokenSource();
             _sources[taskId] = source;
-            if (_pending.Remove(taskId))
-            {
-                source.Cancel();
-            }
+            _sourceOwners[taskId] = requesterUserId;
+            ApplyPending(taskId, requesterUserId, source);
 
             return true;
         }
@@ -75,6 +82,7 @@ public sealed class TaskCancellationRegistry
         {
             if (_sources.Remove(taskId, out var source))
             {
+                _sourceOwners.Remove(taskId);
                 source.Dispose();
             }
         }
@@ -97,27 +105,42 @@ public sealed class TaskCancellationRegistry
     /// <summary>
     /// Cancels a registered task or remembers the request until the task is
     /// registered. Used when a cancel arrives before the task row exists.
+    /// <paramref name="requesterUserId"/> ограничивает ожидающую заявку:
+    /// null — системный доступ, иначе только регистрация этого пользователя.
     /// </summary>
-    public bool RequestCancel(Guid taskId)
+    public bool RequestCancel(Guid taskId) => RequestCancel(taskId, requesterUserId: null);
+
+    public bool RequestCancel(Guid taskId, Guid? requesterUserId)
     {
         lock (_gate)
         {
             PruneExpired();
             if (_sources.TryGetValue(taskId, out var source))
             {
+                // Чужая заявка не отменяет уже зарегистрированную загрузку.
+                if (!SourceBelongsTo(taskId, requesterUserId))
+                {
+                    return false;
+                }
+
                 source.Cancel();
                 return true;
             }
 
             if (_pending.Count >= MaxPending)
             {
-                _pending.Clear();
+                var oldest = _pending.MinBy(entry => entry.Value.RequestedAtUtc);
+                if (oldest.Value is not null) _pending.Remove(oldest.Key);
             }
 
-            _pending[taskId] = DateTimeOffset.UtcNow;
+            _pending[(taskId, requesterUserId)] = new PendingCancel(DateTimeOffset.UtcNow);
             return false;
         }
     }
+
+    private bool SourceBelongsTo(Guid taskId, Guid? requesterUserId) =>
+        requesterUserId is null
+        || (_sourceOwners.TryGetValue(taskId, out var owner) && owner == requesterUserId);
 
     private void PruneExpired()
     {
@@ -129,12 +152,24 @@ public sealed class TaskCancellationRegistry
         var threshold = DateTimeOffset.UtcNow - PendingLifetime;
         foreach (var entry in _pending.ToArray())
         {
-            if (entry.Value <= threshold)
+            if (entry.Value.RequestedAtUtc <= threshold)
             {
                 _pending.Remove(entry.Key);
             }
         }
     }
+
+    private void ApplyPending(Guid taskId, Guid? owner, CancellationTokenSource source)
+    {
+        var keys = new List<(Guid, Guid?)> { (taskId, owner) };
+        if (owner is not null) keys.Add((taskId, null));
+        foreach (var key in keys)
+        {
+            if (_pending.Remove(key)) source.Cancel();
+        }
+    }
+
+    private sealed record PendingCancel(DateTimeOffset RequestedAtUtc);
 }
 
 /// <summary>
@@ -147,14 +182,30 @@ public sealed class TaskCancellationService(
     TaskOperationGate operationGate,
     ILogger<TaskCancellationService>? logger = null)
 {
-    public async Task CancelAsync(Guid taskId, CancellationToken cancellationToken = default)
+    public async Task CancelAsync(
+        Guid taskId,
+        TaskVisibility? visibility = null,
+        CancellationToken cancellationToken = default)
     {
+        var scope = visibility ?? TaskVisibility.Everything;
         using var operation = await operationGate.EnterAsync(taskId, cancellationToken);
         var task = await repository.GetAsync(taskId, cancellationToken);
         if (task is null)
         {
-            // Upload may not have created its task row yet: remember the request.
-            registry.RequestCancel(taskId);
+            // Upload may not have created its task row yet: remember the request
+            // for the same requester only; a foreign pending cancel never
+            // cancels another user's upload.
+            if (CanRecordPending(scope))
+            {
+                registry.RequestCancel(taskId, scope.RequiredAuthorUserId);
+            }
+
+            return;
+        }
+
+        if (!IsVisible(scope, task))
+        {
+            // Чужой ID ведёт себя как отсутствующий: состояние не меняется.
             return;
         }
 
@@ -173,6 +224,14 @@ public sealed class TaskCancellationService(
                 return;
         }
     }
+
+    private static bool CanRecordPending(TaskVisibility visibility) =>
+        visibility.AllAuthors
+        || (visibility.AuthorUserId is { } userId && userId != Guid.Empty);
+
+    private static bool IsVisible(TaskVisibility visibility, FileTask task) =>
+        visibility.AllAuthors
+        || (visibility.AuthorUserId is { } userId && userId != Guid.Empty && task.AuthorUserId == userId);
 
     private async Task TransitionSafelyAsync(Guid taskId, FileTaskStatus status, string stage, string? error, CancellationToken cancellationToken)
     {

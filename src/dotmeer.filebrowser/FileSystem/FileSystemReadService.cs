@@ -1,3 +1,4 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Configuration;
 
 namespace dotmeer.filebrowser.FileSystem;
@@ -13,21 +14,26 @@ public sealed class FileSystemReadService
         _pathResolver = pathResolver;
     }
 
-    public IReadOnlyList<RootDto> GetRoots()
+    public IReadOnlyList<RootDto> GetRoots(FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
         return _configuration.Roots
-            .Select(root => new RootDto(root.Name, IsAvailable(root.Name)))
+            .Where(root => access.CanReadRoot(root.Name))
+            .Select(root => new RootDto(root.Name, IsAvailable(root.Name), access.CanWriteRoot(root.Name)))
             .ToArray();
     }
 
-    public DirectoryListingDto List(FileRef directoryRef)
+    public DirectoryListingDto List(FileRef directoryRef, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
         if (VirtualRoot.IsVirtualRoot(directoryRef.Root))
         {
-            return ListVirtualRoot(directoryRef.Path);
+            return ListVirtualRoot(directoryRef.Path, access);
         }
 
+        access.EnsureReadableReference(_pathResolver, directoryRef);
         var resolved = _pathResolver.ResolveExisting(directoryRef);
+        access.EnsureReadablePath(resolved.Root, resolved.PhysicalPath);
         if (!resolved.IsDirectory)
         {
             throw new InvalidFileSystemRequestException("Запрошенный объект не является каталогом.");
@@ -37,7 +43,8 @@ public sealed class FileSystemReadService
         foreach (var path in Directory.EnumerateFileSystemEntries(resolved.PhysicalPath))
         {
             var name = Path.GetFileName(path);
-            if (name.StartsWith(".filebrowser-", StringComparison.Ordinal))
+            if (PathResolver.IsReservedTemporaryArtifactName(name)
+                || access.IsProtectedPath(path))
             {
                 continue;
             }
@@ -74,18 +81,22 @@ public sealed class FileSystemReadService
             })
             .ThenBy(entry => entry.Name, StringComparer.Ordinal)
             .ToArray();
-        return new DirectoryListingDto(resolved.Root, resolved.RelativePath, ordered);
+        return new DirectoryListingDto(resolved.Root, resolved.RelativePath, ordered, access.CanWriteRoot(resolved.Root));
     }
 
-    public ResolvedFile OpenFile(FileRef fileRef)
+    public ResolvedFile OpenFile(FileRef fileRef, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
         if (VirtualRoot.IsVirtualRoot(fileRef.Root))
         {
             var (rootName, rest) = VirtualRoot.SplitPath(fileRef.Path);
-            return OpenFile(new FileRef(rootName, rest));
+            access.EnsureReadableRoot(rootName);
+            return OpenFile(new FileRef(rootName, rest), access);
         }
 
+        access.EnsureReadableReference(_pathResolver, fileRef);
         var resolved = _pathResolver.ResolveExisting(fileRef);
+        access.EnsureReadablePath(resolved.Root, resolved.PhysicalPath);
         if (resolved.IsDirectory)
         {
             throw new InvalidFileSystemRequestException("Скачивание поддерживается только для файлов.");
@@ -115,12 +126,12 @@ public sealed class FileSystemReadService
         }
     }
 
-    private DirectoryListingDto ListVirtualRoot(string path)
+    private DirectoryListingDto ListVirtualRoot(string path, FileActor access)
     {
         if (string.IsNullOrEmpty(path))
         {
             var entries = new List<FileEntryDto>();
-            foreach (var root in _configuration.Roots)
+            foreach (var root in _configuration.Roots.Where(root => access.CanReadRoot(root.Name)))
             {
                 DateTimeOffset? modifiedAtUtc = null;
                 var kind = "unsupported";
@@ -145,15 +156,15 @@ public sealed class FileSystemReadService
             var ordered = entries
                 .OrderBy(entry => entry.Name, StringComparer.Ordinal)
                 .ToArray();
-            return new DirectoryListingDto(VirtualRoot.VirtualRootName, string.Empty, ordered);
+            return new DirectoryListingDto(VirtualRoot.VirtualRootName, string.Empty, ordered, false);
         }
 
         var (rootName, rest) = VirtualRoot.SplitPath(path);
-        var listing = List(new FileRef(rootName, rest));
+        var listing = List(new FileRef(rootName, rest), access);
         var prefixed = listing.Entries
             .Select(entry => entry with { Path = $"{rootName}/{entry.Path}" })
             .ToArray();
-        return new DirectoryListingDto(VirtualRoot.VirtualRootName, path, prefixed);
+        return new DirectoryListingDto(VirtualRoot.VirtualRootName, path, prefixed, listing.CanWrite);
     }
 
     private bool IsAvailable(string rootName)
@@ -174,10 +185,14 @@ public sealed class FileSystemReadService
     }
 }
 
-public sealed record RootDto(string Name, bool Available);
+public sealed record RootDto(string Name, bool Available, bool CanWrite);
 
 public sealed record ResolvedFile(string Name, FileStream Stream);
 
-public sealed record DirectoryListingDto(string Root, string Path, IReadOnlyList<FileEntryDto> Entries);
+public sealed record DirectoryListingDto(
+    string Root,
+    string Path,
+    IReadOnlyList<FileEntryDto> Entries,
+    bool CanWrite = false);
 
 public sealed record FileEntryDto(string Name, string Path, string Kind, long? Size, DateTimeOffset? ModifiedAtUtc);

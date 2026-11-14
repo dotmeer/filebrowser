@@ -12,7 +12,7 @@
   <data name="Theme_Light" xml:space="preserve"><value>Light</value></data>
   <data name="Theme_Dark" xml:space="preserve"><value>Dark</value></data>
   <data name="Settings_ServerConfiguration" xml:space="preserve"><value>Server configuration</value></data>
-  <data name="Settings_ConfigurationDescription1" xml:space="preserve"><value>Application settings are defined in the config.yaml file.</value></data>
+  <data name="Settings_ConfigurationDescription1" xml:space="preserve"><value>Application settings are defined in</value></data>
   <data name="Settings_ConfigurationDescription2" xml:space="preserve"><value>Edit the file on the server and restart the application to apply the changes.</value></data>
   <data name="Settings_Language" xml:space="preserve"><value>Language</value></data>
   <data name="Language_English" xml:space="preserve"><value>English</value></data>
@@ -199,6 +199,7 @@
   <data name="Не обработан после ошибки предыдущего объекта." xml:space="preserve"><value>Skipped after an error in the previous object.</value></data>
   <data name="Файловая операция не выполнена." xml:space="preserve"><value>The file operation failed.</value></data>
   <data name="Нет доступа." xml:space="preserve"><value>Access denied.</value></data>
+  <data name="Права автора задачи отозваны." xml:space="preserve"><value>The task author's access has been revoked.</value></data>
   <data name="Ошибка копирования." xml:space="preserve"><value>Copy failed.</value></data>
   <data name="Ошибка перемещения." xml:space="preserve"><value>Move failed.</value></data>
   <data name="Назначение создано, но источник не удалён. Источник мог сохраниться полностью или частично." xml:space="preserve"><value>Destination was created, but the source was not deleted. The source may remain fully or partially.</value></data>
@@ -266,4 +267,82 @@
   <data name="Error_UploadCancelled_Detail" xml:space="preserve"><value>The upload was cancelled.</value></data>
   <data name="Error_NameConflict_Title" xml:space="preserve"><value>Name conflict</value></data>
   <data name="Error_NameConflict_Detail" xml:space="preserve"><value>An object with this name already exists.</value></data>
+  <data name="Error_AuthenticationRequired_Title" xml:space="preserve"><value>Sign-in required</value></data>
+  <data name="Error_AuthenticationRequired_Detail" xml:space="preserve"><value>Sign in to access files in this application.</value></data>
+  <data name="Auth_SignIn" xml:space="preserve"><value>Sign in</value></data>
+  <data name="Auth_SignIn_Title" xml:space="preserve"><value>Sign in</value></data>
+  <data name="Auth_Login_Description" xml:space="preserve"><value>Enter the local account credentials for this server.</value></data>
+  <data name="Auth_Login" xml:space="preserve"><value>Login</value></data>
+  <data name="Auth_Password" xml:space="preserve"><value>Password</value></data>
+  <data name="Auth_PasswordConfirm" xml:space="preserve"><value>Repeat password</value></data>
+  <data name="Auth_Setup_Title" xml:space="preserve"><value>Initial administrator setup</value></data>
+  <data name="Auth_Setup_Description" xml:space="preserve"><value>No account exists yet. Set the password for the built-in admin account. There is no default password and no invitation token.</value></data>
+  <data name="Auth_CreateAdmin" xml:space="preserve"><value>Create administrator</value></data>
+  <data name="Auth_ChangePassword_Title" xml:space="preserve"><value>Change password</value></data>
+  <data name="Auth_ChangePassword_Description" xml:space="preserve"><value>Use the current password to set a new one. Other sessions of this account are revoked.</value></data>
+  <data name="Auth_ChangePassword_Menu" xml:space="preserve"><value>Change password</value></data>
+  <data name="Auth_CurrentPassword" xml:space="preserve"><value>Current password</value></data>
+  <data name="Auth_NewPassword" xml:space="preserve"><value>New password</value></data>
+  <data name="Auth_SavePassword" xml:space="preserve"><value>Save password</value></data>
+  <data name="Auth_Logout" xml:space="preserve"><value>Sign out</value></data>
+  <data name="Auth_AccessDenied_Title" xml:space="preserve"><value>Access denied</value></data>
+  <data name="Auth_AccessDenied_Detail" xml:space="preserve"><value>Your account is not allowed to perform this action.</value></data>
+  <data name="Auth_AccessDenied_Explanation" xml:space="preserve"><value>Your account does not have access to this section. Sign out to use another account.</value></data>
+  <data name="Auth_Authorizing" xml:space="preserve"><value>Checking access…</value></data>
+  <data name="Auth_Error_Credentials" xml:space="preserve"><value>Invalid login or password.</value></data>
+  <data name="Auth_Error_Antiforgery" xml:space="preserve"><value>The security token is missing or invalid. Reload the page and try again.</value></data>
+  <data name="Auth_Error_PasswordRequired" xml:space="preserve"><value>Enter a password.</value></data>
+  <data name="Auth_Error_PasswordMismatch" xml:space="preserve"><value>The passwords do not match.</value></data>
+  <data name="Auth_Error_CurrentPassword" xml:space="preserve"><value>The current password is incorrect.</value></data>
+  <data name="Auth_Error_SamePassword" xml:space="preserve"><value>Choose a password different from your temporary password.</value></data>
+  <data name="Нет доступных корней." xml:space="preserve"><value>No accessible roots.</value></data>
+  <data name="Users_Menu" xml:space="preserve"><value>Users</value></data>
+  <data name="Users_Title" xml:space="preserve"><value>Users</value></data>
+  <data name="Users_CreateTitle" xml:space="preserve"><value>New user</value></data>
+  <data name="Users_CreateDescription" xml:space="preserve"><value>The user signs in with a temporary password and must set their own password before accessing files and tasks.</value></data>
+  <data name="Users_ListTitle" xml:space="preserve"><value>Accounts</value></data>
+  <data name="Users_Login" xml:space="preserve"><value>Login</value></data>
+  <data name="Users_TempPassword" xml:space="preserve"><value>Temporary password</value></data>
+  <data name="Users_PasswordConfirm" xml:space="preserve"><value>Repeat password</value></data>
+  <data name="Users_Create" xml:space="preserve"><value>Create user</value></data>
+  <data name="Users_Role" xml:space="preserve"><value>Role</value></data>
+  <data name="Users_RoleAdmin" xml:space="preserve"><value>Administrator</value></data>
+  <data name="Users_RoleUser" xml:space="preserve"><value>User</value></data>
+  <data name="Users_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="Users_StatusActive" xml:space="preserve"><value>Active</value></data>
+  <data name="Users_StatusTemporary" xml:space="preserve"><value>Temporary password</value></data>
+  <data name="Users_Rights" xml:space="preserve"><value>Root permissions</value></data>
+  <data name="Users_RightsNone" xml:space="preserve"><value>No access</value></data>
+  <data name="Users_RightsRead" xml:space="preserve"><value>Read only</value></data>
+  <data name="Users_RightsWrite" xml:space="preserve"><value>Read and write</value></data>
+  <data name="Users_RightsReadShort" xml:space="preserve"><value>read</value></data>
+  <data name="Users_RightsWriteShort" xml:space="preserve"><value>write</value></data>
+  <data name="Users_AllRoots" xml:space="preserve"><value>All roots</value></data>
+  <data name="Users_Actions" xml:space="preserve"><value>Actions</value></data>
+  <data name="Users_EditRights" xml:space="preserve"><value>Permissions</value></data>
+  <data name="Users_ResetPassword" xml:space="preserve"><value>Reset password</value></data>
+  <data name="Users_Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Users_Save" xml:space="preserve"><value>Save</value></data>
+  <data name="Users_Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="Users_DeleteConfirm" xml:space="preserve"><value>Delete user “{0}”? The account and its sessions are removed.</value></data>
+  <data name="Users_DeleteWarning" xml:space="preserve"><value>Files and task history are kept. Old sessions stop working immediately.</value></data>
+  <data name="Users_Empty" xml:space="preserve"><value>No regular users yet.</value></data>
+  <data name="Users_Created" xml:space="preserve"><value>User created with a temporary password.</value></data>
+  <data name="Users_RightsSaved" xml:space="preserve"><value>Permissions saved.</value></data>
+  <data name="Users_PasswordReset" xml:space="preserve"><value>Password reset. The user must set a new password at the next sign-in.</value></data>
+  <data name="Users_Deleted" xml:space="preserve"><value>User deleted.</value></data>
+  <data name="Users_Error_LoginRequired" xml:space="preserve"><value>Enter a login.</value></data>
+  <data name="Users_Error_InvalidLogin" xml:space="preserve"><value>The login is invalid or reserved.</value></data>
+  <data name="Users_Error_DuplicateLogin" xml:space="preserve"><value>A user with this login already exists.</value></data>
+  <data name="Users_Error_PasswordRequired" xml:space="preserve"><value>Enter a temporary password.</value></data>
+  <data name="Users_Error_PasswordMismatch" xml:space="preserve"><value>The passwords do not match.</value></data>
+  <data name="Users_Error_AdminProtected" xml:space="preserve"><value>The built-in admin account cannot be changed this way.</value></data>
+  <data name="Users_Error_UserNotFound" xml:space="preserve"><value>The user was not found.</value></data>
+  <data name="Users_Error_Generic" xml:space="preserve"><value>The action could not be completed.</value></data>
+  <data name="Users_ResetTitle" xml:space="preserve"><value>Reset password for “{0}”</value></data>
+  <data name="Users_NewPassword" xml:space="preserve"><value>New temporary password</value></data>
+  <data name="Users_ResetHint" xml:space="preserve"><value>The user must set a new password at the next sign-in; previous sessions are revoked.</value></data>
+  <data name="Users_RightsTitle" xml:space="preserve"><value>Permissions for “{0}”</value></data>
+  <data name="Settings_LanguageCurrent" xml:space="preserve"><value>Current language</value></data>
+  <data name="Settings_LanguageAdminOnly" xml:space="preserve"><value>Only the administrator can change the global language.</value></data>
 </root>

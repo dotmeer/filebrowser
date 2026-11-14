@@ -2,6 +2,8 @@ services:
   filebrowser:
     build: .
     image: filemanager
+    environment:
+      AUTH_MODE: LOCAL
     # Default binding: loopback only. For LAN access change to "8080:8080"
     # explicitly and ensure network-level restrictions yourself.
     ports:

@@ -6,8 +6,13 @@ namespace dotmeer.filebrowser.Tasks;
 
 public sealed class TaskRepository(TaskDatabase database, TaskNotificationService? notifications = null)
 {
-    public Task<FileTask> CreateQueuedAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default) =>
-        CreateAsync(type, sources, destination, FileTaskStatus.Queued, "queued", null, null, cancellationToken, null);
+    public Task<FileTask> CreateQueuedAsync(
+        FileTaskType type,
+        IReadOnlyList<FileRef> sources,
+        FileRef destination,
+        CancellationToken cancellationToken = default,
+        Guid? authorUserId = null) =>
+        CreateAsync(type, sources, destination, FileTaskStatus.Queued, "queued", null, null, cancellationToken, null, authorUserId);
 
     /// <summary>
     /// Creates a task that is already active and is not placed into the task
@@ -23,14 +28,15 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         long? bytesTotal,
         long? itemsTotal,
         CancellationToken cancellationToken = default,
-        Guid? taskId = null)
+        Guid? taskId = null,
+        Guid? authorUserId = null)
     {
         if (!FileTaskStateTransitions.IsActive(status) || status == FileTaskStatus.Queued)
         {
             throw new ArgumentException("Активная задача должна быть создана в состоянии scanning/running/cancelling.", nameof(status));
         }
 
-        return CreateAsync(type, sources, destination, status, stage, bytesTotal, itemsTotal, cancellationToken, taskId);
+        return CreateAsync(type, sources, destination, status, stage, bytesTotal, itemsTotal, cancellationToken, taskId, authorUserId);
     }
 
     private Task<FileTask> CreateAsync(
@@ -42,7 +48,8 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         long? bytesTotal,
         long? itemsTotal,
         CancellationToken cancellationToken,
-        Guid? taskId)
+        Guid? taskId,
+        Guid? authorUserId)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(destination);
@@ -74,15 +81,16 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             now,
             startedAt,
             now,
-            null);
+            null,
+            authorUserId);
         using var connection = database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
-                INSERT INTO tasks(id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc)
-                VALUES ($id, $type, $status, $stage, $destinationRoot, $destinationPath, 0, $bytesTotal, 0, $itemsTotal, NULL, $createdAtUtc, $startedAtUtc, $updatedAtUtc, NULL);
+                INSERT INTO tasks(id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc, author_user_id)
+                VALUES ($id, $type, $status, $stage, $destinationRoot, $destinationPath, 0, $bytesTotal, 0, $itemsTotal, NULL, $createdAtUtc, $startedAtUtc, $updatedAtUtc, NULL, $authorUserId);
                 """;
             command.Parameters.AddWithValue("$id", task.Id.ToString("D"));
             command.Parameters.AddWithValue("$type", ToDatabaseValue(task.Type));
@@ -95,6 +103,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
             command.Parameters.AddWithValue("$createdAtUtc", ToDatabaseValue(now));
             command.Parameters.AddWithValue("$startedAtUtc", (object?)startedAt is null ? DBNull.Value : ToDatabaseValue(startedAt.Value));
             command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(now));
+            command.Parameters.AddWithValue("$authorUserId", (object?)authorUserId?.ToString("D") ?? DBNull.Value);
             try
             {
                 command.ExecuteNonQuery();
@@ -121,17 +130,31 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         }
 
         transaction.Commit();
-        Notify(TaskChangeKind.Created, task.Id);
+        Notify(TaskChangeKind.Created, task.Id, authorUserId);
         return Task.FromResult(task);
     }
 
-    public Task<FileTask?> GetAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task<FileTask?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+        GetAsync(id, TaskVisibility.Everything, cancellationToken);
+
+    /// <summary>
+    /// Читает задачу в пределах области видимости. Чужой/невидимый ID ведёт
+    /// себя как отсутствующий и не раскрывает задачу.
+    /// </summary>
+    public Task<FileTask?> GetAsync(Guid id, TaskVisibility visibility, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
-        return Task.FromResult(GetTask(connection, id));
+        return Task.FromResult(GetTask(connection, id, null, visibility));
     }
 
-    public Task<TaskPage> GetPageAsync(int offset, int limit, CancellationToken cancellationToken = default)
+    public Task<TaskPage> GetPageAsync(int offset, int limit, CancellationToken cancellationToken = default) =>
+        GetPageAsync(offset, limit, TaskVisibility.Everything, cancellationToken);
+
+    public Task<TaskPage> GetPageAsync(
+        int offset,
+        int limit,
+        TaskVisibility visibility,
+        CancellationToken cancellationToken = default)
     {
         if (offset < 0 || limit is < 1 or > 50)
         {
@@ -140,14 +163,16 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
 
         using var connection = database.OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
+        command.CommandText = $"""
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc, author_user_id
             FROM tasks
+            {AuthorPredicate(visibility)}
             ORDER BY created_at_utc DESC, id DESC
             LIMIT $take OFFSET $offset;
             """;
         command.Parameters.AddWithValue("$take", limit + 1);
         command.Parameters.AddWithValue("$offset", offset);
+        AddAuthorParameter(command, visibility);
         var rows = new List<TaskRow>();
         using (var reader = command.ExecuteReader())
         {
@@ -168,16 +193,23 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         return Task.FromResult(new TaskPage(tasks, offset, limit, hasMore));
     }
 
-    public Task<IReadOnlyList<FileTask>> GetActiveAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<FileTask>> GetActiveAsync(CancellationToken cancellationToken = default) =>
+        GetActiveAsync(TaskVisibility.Everything, cancellationToken);
+
+    public Task<IReadOnlyList<FileTask>> GetActiveAsync(
+        TaskVisibility visibility,
+        CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
+        command.CommandText = $"""
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc, author_user_id
             FROM tasks
             WHERE status IN ('queued', 'scanning', 'running', 'cancelling')
+              {(visibility.AllAuthors ? string.Empty : "AND author_user_id = $authorUserId")}
             ORDER BY created_at_utc ASC, id ASC;
             """;
+        AddAuthorParameter(command, visibility);
         var rows = new List<TaskRow>();
         using (var reader = command.ExecuteReader())
         {
@@ -191,7 +223,14 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         return Task.FromResult<IReadOnlyList<FileTask>>(tasks);
     }
 
-    public Task<TaskPage> GetHistoryPageAsync(int offset, int limit, CancellationToken cancellationToken = default)
+    public Task<TaskPage> GetHistoryPageAsync(int offset, int limit, CancellationToken cancellationToken = default) =>
+        GetHistoryPageAsync(offset, limit, TaskVisibility.Everything, cancellationToken);
+
+    public Task<TaskPage> GetHistoryPageAsync(
+        int offset,
+        int limit,
+        TaskVisibility visibility,
+        CancellationToken cancellationToken = default)
     {
         if (offset < 0 || limit is < 1 or > 50)
         {
@@ -200,15 +239,17 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
 
         using var connection = database.OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
+        command.CommandText = $"""
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc, author_user_id
             FROM tasks
             WHERE status IN ('completed', 'failed', 'cancelled', 'interrupted')
+              {(visibility.AllAuthors ? string.Empty : "AND author_user_id = $authorUserId")}
             ORDER BY created_at_utc DESC, id DESC
             LIMIT $take OFFSET $offset;
             """;
         command.Parameters.AddWithValue("$take", limit + 1);
         command.Parameters.AddWithValue("$offset", offset);
+        AddAuthorParameter(command, visibility);
         var rows = new List<TaskRow>();
         using (var reader = command.ExecuteReader())
         {
@@ -263,7 +304,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         }
 
         transaction.Commit();
-        Notify(TaskChangeKind.Updated, id);
+        Notify(TaskChangeKind.Updated, id, current.AuthorUserId);
         return Task.CompletedTask;
     }
 
@@ -337,7 +378,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         }
 
         transaction.Commit();
-        Notify(TaskChangeKind.Updated, id);
+        Notify(TaskChangeKind.Updated, id, current.AuthorUserId);
         return Task.FromResult(nextStatus == FileTaskStatus.Completed
             ? UploadFinalizeOutcome.Completed
             : UploadFinalizeOutcome.Cancelled);
@@ -372,29 +413,46 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
     public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
+        Guid? author = null;
+        using (var ownerCommand = connection.CreateCommand())
+        {
+            ownerCommand.CommandText = "SELECT author_user_id FROM tasks WHERE id = $id AND status = 'queued';";
+            ownerCommand.Parameters.AddWithValue("$id", id.ToString("D"));
+            var owner = ownerCommand.ExecuteScalar();
+            if (owner is string value && Guid.TryParse(value, out var parsed)) author = parsed;
+        }
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM tasks WHERE id = $id AND status = 'queued';";
         command.Parameters.AddWithValue("$id", id.ToString("D"));
         var changed = command.ExecuteNonQuery();
         if (changed > 0)
         {
-            Notify(TaskChangeKind.Updated, id);
+            Notify(TaskChangeKind.Updated, id, author);
         }
         return Task.CompletedTask;
     }
 
-    public Task<int> DeleteInactiveAsync(CancellationToken cancellationToken = default)
+    public Task<int> DeleteInactiveAsync(CancellationToken cancellationToken = default) =>
+        DeleteInactiveAsync(TaskVisibility.Everything, cancellationToken);
+
+    /// <summary>
+    /// Очищает неактивные задачи в пределах области видимости: обычная
+    /// учётная запись — только свои, admin и ANONYMOUS — все. Регистрация
+    /// оставшихся временных артефактов сохраняется (task_id становится NULL).
+    /// </summary>
+    public Task<int> DeleteInactiveAsync(TaskVisibility visibility, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled', 'interrupted');";
+        command.CommandText = $"DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled', 'interrupted') {(visibility.AllAuthors ? string.Empty : "AND author_user_id = $authorUserId")};";
+        AddAuthorParameter(command, visibility);
         var deleted = command.ExecuteNonQuery();
         transaction.Commit();
         if (deleted > 0)
         {
-            Notify(TaskChangeKind.HistoryCleared, null);
+            Notify(TaskChangeKind.HistoryCleared, null, visibility: visibility);
         }
         return Task.FromResult(deleted);
     }
@@ -402,6 +460,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
     public Task CancelPendingItemsAsync(Guid taskId, string error, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
+        var author = ReadNotificationAuthor(connection, taskId);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE task_items
@@ -414,7 +473,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         var changed = command.ExecuteNonQuery();
         if (changed > 0)
         {
-            Notify(TaskChangeKind.Updated, taskId);
+            Notify(TaskChangeKind.Updated, taskId, author);
         }
 
         return Task.CompletedTask;
@@ -469,6 +528,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
     public Task UpdateProgressAsync(Guid id, long bytesDone, long? bytesTotal, long itemsDone, long? itemsTotal, CancellationToken cancellationToken = default)
     {
         using var connection = database.OpenConnection();
+        var author = ReadNotificationAuthor(connection, id);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE tasks
@@ -486,12 +546,14 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         command.Parameters.AddWithValue("$updatedAtUtc", ToDatabaseValue(DateTimeOffset.UtcNow));
         command.Parameters.AddWithValue("$id", id.ToString("D"));
         command.ExecuteNonQuery();
-        Notify(TaskChangeKind.Progress, id);
+        Notify(TaskChangeKind.Progress, id, author);
         return Task.CompletedTask;
     }
 
     public Task UpdateTaskItemAsync(Guid taskId, FileRef source, string status, string? error, long itemsDone, long? itemsTotal, CancellationToken cancellationToken = default)
-    {        using var connection = database.OpenConnection();
+    {
+        using var connection = database.OpenConnection();
+        var author = ReadNotificationAuthor(connection, taskId);
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE task_items
@@ -509,22 +571,46 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         command.Parameters.AddWithValue("$sourceRoot", source.Root);
         command.Parameters.AddWithValue("$sourcePath", source.Path);
         command.ExecuteNonQuery();
-        Notify(TaskChangeKind.Updated, taskId);
+        Notify(TaskChangeKind.Updated, taskId, author);
         return Task.CompletedTask;
     }
 
-    private void Notify(TaskChangeKind kind, Guid? taskId) =>
-        notifications?.Publish(new TaskChangeNotification(kind, taskId));
+    private void Notify(TaskChangeKind kind, Guid? taskId, Guid? authorUserId = null, TaskVisibility? visibility = null)
+    {
+        if (notifications is null) return;
+        if (kind == TaskChangeKind.HistoryCleared)
+            notifications.Publish(new TaskChangeNotification(kind, taskId, null, visibility ?? TaskVisibility.Everything));
+        else
+            notifications.Publish(new TaskChangeNotification(kind, taskId, authorUserId, authorUserId is { } owner ? TaskVisibility.ForUser(owner) : TaskVisibility.Everything));
+    }
 
-    private static FileTask? GetTask(SqliteConnection connection, Guid id, SqliteTransaction? transaction = null)
+    private static Guid? ReadNotificationAuthor(SqliteConnection connection, Guid taskId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT author_user_id FROM tasks WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", taskId.ToString("D"));
+        var value = command.ExecuteScalar();
+        return value is string text && Guid.TryParse(text, out var author) ? author : null;
+    }
+
+    private static FileTask? GetTask(
+        SqliteConnection connection,
+        Guid id,
+        SqliteTransaction? transaction = null,
+        TaskVisibility? visibility = null)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc
-            FROM tasks WHERE id = $id;
+        var filter = visibility is { AllAuthors: false } ? " AND author_user_id = $authorUserId" : string.Empty;
+        command.CommandText = $"""
+            SELECT id, type, status, stage, destination_root, destination_path, bytes_done, bytes_total, items_done, items_total, error, created_at_utc, started_at_utc, updated_at_utc, completed_at_utc, author_user_id
+            FROM tasks WHERE id = $id{filter};
             """;
         command.Parameters.AddWithValue("$id", id.ToString("D"));
+        if (visibility is { } value)
+        {
+            AddAuthorParameter(command, value);
+        }
         TaskRow? row;
         using (var reader = command.ExecuteReader())
         {
@@ -653,7 +739,8 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         ParseDate(reader.GetString(11)),
         reader.IsDBNull(12) ? null : ParseDate(reader.GetString(12)),
         ParseDate(reader.GetString(13)),
-        reader.IsDBNull(14) ? null : ParseDate(reader.GetString(14)));
+        reader.IsDBNull(14) ? null : ParseDate(reader.GetString(14)),
+        reader.IsDBNull(15) ? null : Guid.Parse(reader.GetString(15)));
 
     private static FileTask ToFileTask(TaskRow row, IReadOnlyList<FileRef> sources, IReadOnlyList<TaskItem> items) => new(
         row.Id,
@@ -671,7 +758,21 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         row.CreatedAtUtc,
         row.StartedAtUtc,
         row.UpdatedAtUtc,
-        row.CompletedAtUtc);
+        row.CompletedAtUtc,
+        row.AuthorUserId);
+
+    private static string AuthorPredicate(TaskVisibility visibility) =>
+        visibility.AllAuthors ? string.Empty : "WHERE author_user_id = $authorUserId";
+
+    private static void AddAuthorParameter(SqliteCommand command, TaskVisibility visibility)
+    {
+        if (!visibility.AllAuthors)
+        {
+            command.Parameters.AddWithValue(
+                "$authorUserId",
+                (visibility.AuthorUserId ?? Guid.Empty).ToString("D"));
+        }
+    }
 
     private static string ToDatabaseValue(FileTaskType type) => type.ToString().ToLowerInvariant();
 
@@ -695,5 +796,6 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset? StartedAtUtc,
         DateTimeOffset UpdatedAtUtc,
-        DateTimeOffset? CompletedAtUtc);
+        DateTimeOffset? CompletedAtUtc,
+        Guid? AuthorUserId);
 }

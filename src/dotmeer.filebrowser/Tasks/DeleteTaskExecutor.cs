@@ -1,10 +1,16 @@
+using dotmeer.filebrowser.Access;
+
 namespace dotmeer.filebrowser.Tasks;
 
-public sealed class DeleteTaskExecutor(FileDeleteEngine engine)
+public sealed class DeleteTaskExecutor(FileDeleteEngine engine, TaskAccessService? accessService = null)
 {
-    public async Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken)
+    public async Task ExecuteAsync(
+        FileTask task,
+        CancellationToken cancellationToken,
+        CancellationToken shutdownToken,
+        FileActor? actor = null)
     {
-        var plan = await engine.BuildPlanAsync(task, cancellationToken);
+        var plan = await engine.BuildPlanAsync(task, cancellationToken, actor);
         await engine.FailPreflightAsync(task, plan, cancellationToken);
         var progress = await engine.StartRunningAsync(task, plan, cancellationToken);
 
@@ -14,11 +20,30 @@ public sealed class DeleteTaskExecutor(FileDeleteEngine engine)
             DeleteArtifact? artifact = null;
             try
             {
+                // Права автора перечитываются до неделимой фазы текущего объекта.
+                if (accessService is not null)
+                {
+                    await accessService.EnsureEntryAsync(task, entry.SourcePath, destination: null, cancellationToken);
+                }
+
                 // Отмена проверяется только на границе верхнеуровневых объектов
                 // (SPEC §13.9): переименование и удаление артефакта — критическая
                 // секция, как публикация и удаление источника в move.
                 cancellationToken.ThrowIfCancellationRequested();
                 artifact = await engine.RegisterArtifactAsync(task, entry, cancellationToken);
+                if (accessService is not null)
+                {
+                    try
+                    {
+                        await accessService.EnsureEntryAsync(task, entry.SourcePath, destination: null, cancellationToken);
+                    }
+                    catch (FileTaskAccessRevokedException)
+                    {
+                        await engine.RemoveArtifactAsync(artifact, CancellationToken.None);
+                        artifact = null;
+                        throw;
+                    }
+                }
                 FileDeleteEngine.MoveIntoArtifact(artifact, entry.SourcePath);
                 await engine.DeleteArtifactAsync(artifact, CancellationToken.None);
                 await engine.RemoveArtifactAsync(artifact, CancellationToken.None);
@@ -26,6 +51,18 @@ public sealed class DeleteTaskExecutor(FileDeleteEngine engine)
                 // Прогресс задачи — по верхнеуровневым объектам (§13.9);
                 // счётчик вложенных узлов хранится в task_items.
                 await progress.ItemCompletedInstantlyAsync(entry.Bytes, 1, CancellationToken.None);
+            }
+            catch (FileTaskAccessRevokedException)
+            {
+                if (artifact is not null)
+                {
+                    await engine.CleanupArtifactAsync(artifact, CancellationToken.None);
+                }
+
+                await engine.RevokeItemAsync(task.Id, entry, CancellationToken.None);
+                await engine.SkipRemainingAsync(task.Id, plan, index, FileTaskErrorCodes.AccessDenied, CancellationToken.None);
+                await progress.ReportAsync(force: true, CancellationToken.None);
+                throw;
             }
             catch (FileDeleteIncompleteException exception)
             {

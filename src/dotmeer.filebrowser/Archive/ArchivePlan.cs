@@ -15,8 +15,13 @@ public sealed record ArchivePlan(string ArchiveName, IReadOnlyList<ArchiveEntry>
 /// <summary>
 /// Выбор для скачивания архивом: базовая папка и имена её детей
 /// (пустой список — все дети, то есть скачивание папки целиком).
+/// <see cref="CreatorUserId"/> привязывает тикет к учётной записи в LOCAL.
 /// </summary>
-public sealed record ArchiveSelection(string Root, string Path, IReadOnlyList<string> Names)
+public sealed record ArchiveSelection(
+    string Root,
+    string Path,
+    IReadOnlyList<string> Names,
+    Guid? CreatorUserId = null)
 {
     public FileRef ToFileRef() => new(Root, Path);
 }

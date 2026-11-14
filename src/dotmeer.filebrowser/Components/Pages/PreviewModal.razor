@@ -72,6 +72,7 @@
     private bool _textFailed;
     private bool _truncated;
     private bool _needsTextLoad = true;
+    private bool _textInteropStarted;
     private bool _disposed;
     private int _requestVersion;
     private string? _loadedKey;
@@ -128,6 +129,7 @@
         }
 
         var requestId = ++_requestVersion;
+        _textInteropStarted = true;
         try
         {
             // Текст остаётся в DOM; в .NET приходят только метаданные.
@@ -182,6 +184,11 @@
 
         _disposed = true;
         _requestVersion++;
+        if (!_textInteropStarted)
+        {
+            return;
+        }
+
         try
         {
             await JavaScript.InvokeVoidAsync("fileBrowser.clearPreviewText", _textHostElement);

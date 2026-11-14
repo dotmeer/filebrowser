@@ -135,6 +135,7 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskErrorCodes.SkippedAfterError => localizer["Не обработан после ошибки предыдущего объекта."],
         FileTaskErrorCodes.OperationFailed => localizer["Файловая операция не выполнена."],
         FileTaskErrorCodes.OperationAccessDenied => localizer["Нет доступа."],
+        FileTaskErrorCodes.AccessDenied => localizer["Права автора задачи отозваны."],
         FileTaskErrorCodes.IoError => taskType switch
         {
             FileTaskType.Move => localizer["Ошибка перемещения."],

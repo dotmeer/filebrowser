@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem.Search;
 using dotmeer.filebrowser.Observability;
@@ -35,9 +36,11 @@ public sealed class FileSystemSearchService
         string? ext,
         IReadOnlyList<GlobMatcher>? extGlobs,
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FileActor? actor = null)
     {
         ArgumentNullException.ThrowIfNull(start);
+        var access = actor ?? FileActor.Unrestricted;
         if (string.IsNullOrWhiteSpace(query))
         {
             throw new InvalidFileSystemRequestException("Поисковый запрос не может быть пустым.");
@@ -64,8 +67,9 @@ public sealed class FileSystemSearchService
                 var (rootName, rest) = VirtualRoot.SplitPath(start.Path);
                 effectiveStart = new FileRef(rootName, rest);
             }
-
+            access.EnsureReadableReference(_pathResolver, effectiveStart);
             var resolvedStart = _pathResolver.ResolveExisting(effectiveStart);
+            access.EnsureReadablePath(resolvedStart.Root, resolvedStart.PhysicalPath);
             if (!resolvedStart.IsDirectory)
             {
                 throw new InvalidFileSystemRequestException("Поиск доступен только для каталогов.");
@@ -84,8 +88,9 @@ public sealed class FileSystemSearchService
 
         if (isVirtual && string.IsNullOrEmpty(start.Path))
         {
-            foreach (var root in _configuration.Roots)
+            foreach (var root in _configuration.Roots.Where(root => access.CanReadRoot(root.Name)))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 ResolvedPath resolved;
                 try
                 {
@@ -97,17 +102,19 @@ public sealed class FileSystemSearchService
                     continue;
                 }
 
+                if (truncated)
+                {
+                    // Лимит уже достигнут: проверяем только доступность следующих
+                    // корней, не начиная обход их дерева.
+                    continue;
+                }
+
                 var addedFrom = results.Count;
                 truncated = WalkSingleRoot(
-                    resolved, query, extGlobs, limit, results, stopwatch, cancellationToken, ref visitedNodes);
+                    resolved, query, extGlobs, limit, results, stopwatch, cancellationToken, access, ref visitedNodes);
                 for (var index = addedFrom; index < results.Count; index++)
                 {
                     results[index] = results[index] with { Path = $"{root.Name}/{results[index].Path}" };
-                }
-
-                if (truncated)
-                {
-                    break;
                 }
             }
         }
@@ -119,10 +126,11 @@ public sealed class FileSystemSearchService
                 var (rootName, rest) = VirtualRoot.SplitPath(start.Path);
                 effectiveStart = new FileRef(rootName, rest);
             }
-
+            access.EnsureReadableReference(_pathResolver, effectiveStart);
             var resolved = _pathResolver.ResolveExisting(effectiveStart);
+            access.EnsureReadablePath(resolved.Root, resolved.PhysicalPath);
             truncated = WalkSingleRoot(
-                resolved, query, extGlobs, limit, results, stopwatch, cancellationToken, ref visitedNodes);
+                resolved, query, extGlobs, limit, results, stopwatch, cancellationToken, access, ref visitedNodes);
             if (isVirtual)
             {
                 for (var index = 0; index < results.Count; index++)
@@ -166,12 +174,13 @@ public sealed class FileSystemSearchService
         List<FileEntryDto> results,
         Stopwatch stopwatch,
         CancellationToken cancellationToken,
+        FileActor access,
         ref int visitedNodes)
     {
         foreach (var node in FileSystemTreeWalker.EnumerateSkippingUnsupported(
             resolved.PhysicalPath,
             cancellationToken,
-            ShouldDescendInto))
+            path => ShouldDescendInto(path) && !access.IsProtectedPath(path)))
         {
             if (results.Count >= limit || stopwatch.Elapsed >= TimeBudget)
             {
@@ -183,13 +192,13 @@ public sealed class FileSystemSearchService
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            if (IsStartNode(resolved, node))
+            if (IsStartNode(resolved, node) || access.IsProtectedPath(node.Path))
             {
                 continue;
             }
 
             var name = Path.GetFileName(node.Path);
-            if (name.StartsWith(".filebrowser-", StringComparison.Ordinal))
+            if (PathResolver.IsReservedTemporaryArtifactName(name))
             {
                 continue;
             }
@@ -223,7 +232,7 @@ public sealed class FileSystemSearchService
     }
 
     private static bool ShouldDescendInto(string path) =>
-        !Path.GetFileName(path).StartsWith(".filebrowser-", StringComparison.Ordinal);
+        !PathResolver.IsReservedTemporaryArtifactName(Path.GetFileName(path));
 
     private static bool IsStartNode(ResolvedPath start, FileSystemTreeNode node) =>
         string.Equals(

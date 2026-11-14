@@ -140,6 +140,7 @@ public sealed class VirtualRootServiceTests
 
         Assert.True(result.Truncated);
         Assert.Equal(500, result.Results.Count);
+        Assert.Equal(["offline"], result.UnavailableRoots);
         Assert.Contains(result.Results, entry => entry.Path.StartsWith("alpha/", StringComparison.Ordinal));
         Assert.Contains(result.Results, entry => entry.Path.StartsWith("beta/", StringComparison.Ordinal));
     }

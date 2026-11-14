@@ -236,6 +236,18 @@ public sealed class TaskManagementTests
 
     private static void InvokeTaskPanelHandler(object panel, TaskChangeNotification notification)
     {
+        var scopeField = panel.GetType().GetField(
+            "_notificationScope",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(scopeField);
+        var scopeConstructor = scopeField!.FieldType.GetConstructor(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(Guid?), typeof(bool)],
+            modifiers: null);
+        Assert.NotNull(scopeConstructor);
+        scopeField.SetValue(panel, scopeConstructor!.Invoke([null, true]));
+
         var method = panel.GetType().GetMethod(
             "OnTaskChanged",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);

@@ -52,7 +52,12 @@ public sealed record FileTask(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    DateTimeOffset? CompletedAtUtc);
+    DateTimeOffset? CompletedAtUtc,
+    /// <summary>
+    /// Неизменяемый ID учётной записи, запустившей задачу. NULL — анонимная
+    /// или старая задача; удаление учётки не меняет сохранённое значение.
+    /// </summary>
+    Guid? AuthorUserId = null);
 
 public sealed record TaskItem(
     long Id,
@@ -97,3 +102,11 @@ public sealed class FileTaskIdConflictException : Exception
     {
     }
 }
+
+/// <summary>
+/// Права автора задачи больше не позволяют её исполнять: строка прав
+/// удалена или учётная запись удалена. Исполнитель прекращает работу на
+/// ближайшей безопасной точке, не начиная новых изменений на файловой системе.
+/// </summary>
+public sealed class FileTaskAccessRevokedException()
+    : Exception("Права автора задачи отозваны.");

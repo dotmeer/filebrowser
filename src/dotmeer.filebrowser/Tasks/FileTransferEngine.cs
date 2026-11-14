@@ -1,3 +1,4 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.FileSystem;
 using Microsoft.Data.Sqlite;
 
@@ -7,8 +8,9 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
 {
     private const int BufferSize = 128 * 1024;
 
-    internal FileTransferPlan BuildPlan(FileTask task, CancellationToken cancellationToken)
+    internal FileTransferPlan BuildPlan(FileTask task, CancellationToken cancellationToken, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
         var errors = new List<FileTransferPlanError>();
         ResolvedPath? destination = null;
         try
@@ -18,6 +20,15 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             {
                 errors.Add(new FileTransferPlanError(null, FileTaskErrorCodes.DestinationNotDirectory));
             }
+            else
+            {
+                access.EnsureWritablePath(destination.Root, destination.PhysicalPath);
+            }
+        }
+        catch (FileSystemAccessDeniedException)
+        {
+            destination = null;
+            errors.Add(new FileTransferPlanError(null, FileTaskErrorCodes.DestinationUnavailable));
         }
         catch (FileSystemResolutionException)
         {
@@ -30,6 +41,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             try
             {
                 var resolved = pathResolver.ResolveExisting(source);
+                access.EnsureMutableBranch(resolved.Root, resolved.PhysicalPath);
                 if (string.IsNullOrEmpty(resolved.RelativePath))
                 {
                     errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.RootAsSource));
@@ -39,6 +51,10 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
                 var name = Path.GetFileName(resolved.PhysicalPath);
                 var scan = ScanObject(resolved.PhysicalPath, cancellationToken);
                 candidates.Add(new FileTransferPlanEntry(source, resolved, name, string.Empty, scan.Bytes, scan.Items));
+            }
+            catch (FileSystemAccessDeniedException)
+            {
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.SourceAccessDenied));
             }
             catch (UnsupportedFileSystemObjectException)
             {
@@ -273,6 +289,9 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
 
     internal Task CancelItemAsync(Guid taskId, FileTransferPlanEntry entry, CancellationToken cancellationToken) =>
         repository.UpdateTaskItemAsync(taskId, entry.Source, "not_processed", FileTaskErrorCodes.CancelledByUser, 0, entry.ItemCount, cancellationToken);
+
+    internal Task RevokeItemAsync(Guid taskId, FileTransferPlanEntry entry, CancellationToken cancellationToken) =>
+        repository.UpdateTaskItemAsync(taskId, entry.Source, "not_processed", FileTaskErrorCodes.AccessDenied, 0, entry.ItemCount, cancellationToken);
 
     internal async Task SkipRemainingAsync(Guid taskId, FileTransferPlan plan, int currentIndex, string skipErrorCode, CancellationToken cancellationToken)
     {

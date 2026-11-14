@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
@@ -24,10 +25,16 @@ public sealed class TaskQueue
 public sealed class TaskDispatcher(
     TaskRepository repository,
     TaskQueue queue,
+    PathResolver? pathResolver = null,
     TaskMetrics? metrics = null,
     ILogger<TaskDispatcher>? logger = null)
 {
-    public async Task<FileTask> EnqueueAsync(FileTaskType type, IReadOnlyList<FileRef> sources, FileRef destination, CancellationToken cancellationToken = default)
+    public async Task<FileTask> EnqueueAsync(
+        FileTaskType type,
+        IReadOnlyList<FileRef> sources,
+        FileRef destination,
+        CancellationToken cancellationToken = default,
+        FileActor? actor = null)
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(destination);
@@ -43,12 +50,27 @@ public sealed class TaskDispatcher(
             throw new ArgumentException("Список источников содержит некорректную ссылку.", nameof(sources));
         }
 
+        var access = actor ?? FileActor.Unrestricted;
+        if (!access.IsFullAccess && access.UserId is null)
+        {
+            // Ограниченный актор без учётной записи не должен создавать
+            // задачу с NULL-автором, которую исполнял бы системный доступ.
+            throw new FileSystemAccessDeniedException("Недостаточно прав для доступа к файловому корню или служебному каталогу.");
+        }
+
+        EnsureAccess(sources, destination, access);
+
         var normalizedSources = sources
             .DistinctBy(source => (source.Root, source.Path), FileRefTupleComparer.Instance)
             .OrderBy(source => $"{source.Root}/{source.Path}", StringComparer.Ordinal)
             .ToArray();
         ValidateSourceList(normalizedSources);
-        var task = await repository.CreateQueuedAsync(type, normalizedSources, destination, cancellationToken);
+        var task = await repository.CreateQueuedAsync(
+            type,
+            normalizedSources,
+            destination,
+            cancellationToken,
+            access.UserId);
         if (queue.TryEnqueue(task.Id))
         {
             metrics?.TaskEnqueued(task.Type);
@@ -65,6 +87,36 @@ public sealed class TaskDispatcher(
         logger?.LogWarning("Очередь задач заполнена; задача {TaskId} удалена из хранилища", task.Id);
         await repository.DeleteAsync(task.Id, cancellationToken);
         throw new FileTaskQueueFullException();
+    }
+
+    private void EnsureAccess(
+        IReadOnlyList<FileRef> sources,
+        FileRef destination,
+        FileActor access)
+    {
+        if (access.IsFullAccess)
+        {
+            return;
+        }
+
+        foreach (var source in sources)
+        {
+            if (pathResolver is null)
+            {
+                access.EnsureWritableRoot(source.Root);
+                continue;
+            }
+
+            access.EnsureMutableReference(pathResolver, source);
+        }
+
+        if (pathResolver is null)
+        {
+            access.EnsureWritableRoot(destination.Root);
+            return;
+        }
+
+        access.EnsureWritableReference(pathResolver, destination);
     }
 
     private static void ValidateSourceList(IReadOnlyList<FileRef> sources)
@@ -123,6 +175,17 @@ public interface IFileTaskExecutor
     /// (leave the task active; startup marks it interrupted).
     /// </param>
     Task ExecuteAsync(FileTask task, CancellationToken cancellationToken, CancellationToken shutdownToken);
+
+    /// <summary>
+    /// Точка входа worker-слоя с актуальным актором автора задачи. Реализация
+    /// по умолчанию сохраняет совместимость с тестовыми исполнителями.
+    /// </summary>
+    Task ExecuteAsync(
+        FileTask task,
+        CancellationToken cancellationToken,
+        CancellationToken shutdownToken,
+        FileActor actor) =>
+        ExecuteAsync(task, cancellationToken, shutdownToken);
 }
 
 public sealed class TaskExecutorHostedService(
@@ -132,6 +195,7 @@ public sealed class TaskExecutorHostedService(
     TemporaryArtifactCleanupService artifactCleanup,
     TaskProgressService runtimeProgress,
     TaskCancellationRegistry cancellationRegistry,
+    TaskAccessService accessService,
     FileBrowserConfiguration configuration,
     ILogger<TaskExecutorHostedService> logger,
     TaskMetrics? metrics = null) : BackgroundService
@@ -173,15 +237,18 @@ public sealed class TaskExecutorHostedService(
                 executionStartedUtc = DateTimeOffset.UtcNow;
                 activity = StartTaskActivity(task);
 
+                // Актуальные права автора — до перехода к файловым изменениям.
+                var access = await accessService.EnsureTaskCanStartAsync(task, stoppingToken);
+
                 using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                     stoppingToken,
-                    cancellationRegistry.Register(taskId).Token);
+                    cancellationRegistry.Register(taskId, task.AuthorUserId).Token);
                 try
                 {
                     await repository.TransitionAsync(taskId, FileTaskStatus.Scanning, "scanning", cancellationToken: stoppingToken);
                     task = await repository.GetAsync(taskId, stoppingToken)
                         ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
-                    await executor.ExecuteAsync(task, linkedCancellation.Token, stoppingToken);
+                    await executor.ExecuteAsync(task, linkedCancellation.Token, stoppingToken, access);
                     var executedTask = await repository.GetAsync(taskId, stoppingToken)
                         ?? throw new KeyNotFoundException("Задача исчезла из хранилища.");
                     if (executedTask.Status == FileTaskStatus.Scanning)
@@ -235,6 +302,18 @@ public sealed class TaskExecutorHostedService(
                 await CancelTaskSafelyAsync(taskId, stoppingToken);
                 runtimeProgress.Clear(taskId);
             }
+            catch (FileTaskAccessRevokedException)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error);
+                activity?.SetTag("filebrowser.task.status", "failed");
+                activity?.SetTag("filebrowser.task.error", FileTaskErrorCodes.AccessDenied);
+                metrics?.TaskFailed(task?.Type, DateTimeOffset.UtcNow - executionStartedUtc);
+                logger.LogWarning(
+                    "Задача {TaskId} остановлена: права автора отозваны или учётная запись удалена",
+                    taskId);
+                await RevokeTaskSafelyAsync(taskId, stoppingToken);
+                runtimeProgress.Clear(taskId);
+            }
             catch (Exception exception) when (exception is OperationCanceledException or FileTaskCancelledException)
             {
                 // Пользовательская отмена (остановка приложения отфильтрована выше).
@@ -275,6 +354,28 @@ public sealed class TaskExecutorHostedService(
         catch (Exception persistenceException) when (persistenceException is not OperationCanceledException)
         {
             logger.LogError(persistenceException, "Не удалось зафиксировать отмену задачи {TaskId}", taskId);
+        }
+    }
+
+    private async Task RevokeTaskSafelyAsync(Guid taskId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await repository.CancelPendingItemsAsync(taskId, FileTaskErrorCodes.AccessDenied, cancellationToken);
+            var task = await repository.GetAsync(taskId, cancellationToken);
+            if (task is not null && FileTaskStateTransitions.IsAllowed(task.Status, FileTaskStatus.Failed))
+            {
+                await repository.TransitionAsync(
+                    taskId,
+                    FileTaskStatus.Failed,
+                    "failed",
+                    FileTaskErrorCodes.AccessDenied,
+                    cancellationToken);
+            }
+        }
+        catch (Exception persistenceException) when (persistenceException is not OperationCanceledException)
+        {
+            logger.LogError(persistenceException, "Не удалось зафиксировать отзыв прав задачи {TaskId}", taskId);
         }
     }
 

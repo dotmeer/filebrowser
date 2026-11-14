@@ -146,6 +146,35 @@ public sealed class VirtualRootUiTests
         Assert.DoesNotContain("were not searched", html);
     }
 
+    [Fact]
+    public async Task BrowsePage_VirtualRootSearchWithoutMatches_StillRendersUnavailableNotice()
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace);
+
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=AllRoots&q=absent"));
+
+        Assert.Contains("Nothing found.", html);
+        Assert.Contains("search-unavailable-roots", html);
+        Assert.Contains("Some roots are unavailable and were not searched: offline", html);
+    }
+
+    [Fact]
+    public async Task BrowsePage_VirtualRootSearchAtLimit_RendersBothNotices()
+    {
+        using var workspace = new TestWorkspace();
+        for (var index = 0; index < 501; index++)
+        {
+            File.WriteAllText(Path.Combine(workspace.RootPath, $"match-{index:000}.txt"), string.Empty);
+        }
+
+        using var host = CreateHost(workspace);
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/?root=AllRoots&q=match"));
+
+        Assert.Contains("There are more results than shown.", html);
+        Assert.Contains("Some roots are unavailable and were not searched: offline", html);
+    }
+
     private static string SecondRootPath(TestWorkspace workspace) =>
         Path.Combine(Path.GetDirectoryName(workspace.RootPath)!, "beta");
 

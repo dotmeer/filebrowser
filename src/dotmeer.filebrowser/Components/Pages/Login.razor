@@ -1,0 +1,48 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@inject IStringLocalizer<SharedResources> L
+
+<PageTitle>@L["Auth_SignIn"]</PageTitle>
+
+<section class="auth-page">
+    <h1>@L["Auth_SignIn_Title"]</h1>
+    <p class="auth-description">@L["Auth_Login_Description"]</p>
+
+    @if (ErrorMessage is not null)
+    {
+        <p class="dialog-error" role="alert">@ErrorMessage</p>
+    }
+
+    <form class="auth-form" method="post" action="/auth/login">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@EffectiveReturnUrl" />
+
+        <label for="login">@L["Auth_Login"]</label>
+        <input id="login" name="login" class="form-control" autocomplete="username" required autofocus />
+
+        <label for="password">@L["Auth_Password"]</label>
+        <input id="password" name="password" type="password" class="form-control" autocomplete="current-password" required />
+
+        <button class="btn btn-primary" type="submit">@L["Auth_SignIn"]</button>
+    </form>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "ReturnUrl")]
+    public string? CookieHandlerReturnUrl { get; set; }
+
+    private string? EffectiveReturnUrl => ReturnUrl ?? CookieHandlerReturnUrl;
+
+    private string? ErrorMessage => Error switch
+    {
+        "credentials" => L["Auth_Error_Credentials"].Value,
+        "antiforgery" => L["Auth_Error_Antiforgery"].Value,
+        _ => null
+    };
+}

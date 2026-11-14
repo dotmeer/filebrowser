@@ -3,6 +3,7 @@
 @inject TaskNotificationService Notifications
 @inject TaskProgressService Progress
 @inject TaskCancellationService Cancellation
+@inject AccessGuard Access
 @inject IJSRuntime JavaScript
 @inject IStringLocalizer<SharedResources> L
 
@@ -132,6 +133,7 @@
     private string? _clearError;
     private int? _lastDeletedCount;
     private readonly HashSet<Guid> _cancelPending = [];
+    private NotificationScope _notificationScope = new(null, false);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -164,9 +166,20 @@
 
     private void OnTaskChanged(TaskChangeNotification notification)
     {
+        var scope = Volatile.Read(ref _notificationScope);
+        var visibility = new TaskVisibility(scope.AuthorUserId, scope.AllAuthors);
+        if (!notification.Affects(visibility))
+        {
+            return;
+        }
+
         if (notification.Kind == TaskChangeKind.HistoryCleared)
         {
-            Interlocked.Exchange(ref _historyResetRequested, 1);
+            if (notification.Scope is { AllAuthors: true }
+                || (!scope.AllAuthors && notification.Scope?.AuthorUserId == scope.AuthorUserId))
+            {
+                Interlocked.Exchange(ref _historyResetRequested, 1);
+            }
         }
 
         if (notification.Kind == TaskChangeKind.Progress)
@@ -263,6 +276,12 @@
 
     private async Task LoadAsync()
     {
+        if (!await Access.HasApplicationAccessAsync())
+        {
+            _loadError = L["Auth_AccessDenied_Detail"];
+            return;
+        }
+
         _loading = true;
         try
         {
@@ -273,14 +292,16 @@
 
             IReadOnlyList<FileTask> active;
             TaskPage history;
+            var visibility = await GetVisibilityAsync();
+            Volatile.Write(ref _notificationScope, new NotificationScope(visibility.AuthorUserId, visibility.AllAuthors));
             try
             {
-                active = await Task.Run(() => Repository.GetActiveAsync());
-                history = await Task.Run(() => Repository.GetHistoryPageAsync(_historyOffset, PageSize));
+                active = await Task.Run(() => Repository.GetActiveAsync(visibility));
+                history = await Task.Run(() => Repository.GetHistoryPageAsync(_historyOffset, PageSize, visibility));
                 if (history.Tasks.Count == 0 && _historyOffset > 0)
                 {
                     _historyOffset = 0;
-                    history = await Task.Run(() => Repository.GetHistoryPageAsync(0, PageSize));
+                    history = await Task.Run(() => Repository.GetHistoryPageAsync(0, PageSize, visibility));
                 }
 
                 _loadError = null;
@@ -296,20 +317,10 @@
             {
                 foreach (var finishedId in _activeIds.Except(activeIds))
                 {
-                    FileTask? finished;
-                    try
-                    {
-                        finished = await Task.Run(() => Repository.GetAsync(finishedId));
-                    }
-                    catch (Exception)
-                    {
-                        continue;
-                    }
-
-                    if (finished is not null && !FileTaskStateTransitions.IsActive(finished.Status))
-                    {
-                        await OnTaskCompleted.InvokeAsync(finished);
-                    }
+                    // Завершённую запись определяет единый SQL-запрос истории,
+                    // а не дополнительное чтение на каждый исчезнувший ID.
+                    var finished = history.Tasks.FirstOrDefault(task => task.Id == finishedId);
+                    if (finished is not null) await OnTaskCompleted.InvokeAsync(finished);
                 }
             }
 
@@ -326,9 +337,17 @@
 
     private async Task LoadActiveAsync()
     {
+        if (!await Access.HasApplicationAccessAsync())
+        {
+            _loadError = L["Auth_AccessDenied_Detail"];
+            return;
+        }
+
         try
         {
-            _active = await Task.Run(() => Repository.GetActiveAsync());
+            var visibility = await GetVisibilityAsync();
+            Volatile.Write(ref _notificationScope, new NotificationScope(visibility.AuthorUserId, visibility.AllAuthors));
+            _active = await Task.Run(() => Repository.GetActiveAsync(visibility));
             _loadError = null;
         }
         catch (Exception)
@@ -339,8 +358,23 @@
 
     private Task RefreshAsync() => LoadAsync();
 
+    /// <summary>
+    /// Область видимости задач для текущего действия. Актор перечитывается
+    /// из SQLite, поэтому изменение прав применяется к следующему запросу.
+    /// </summary>
+    private async Task<TaskVisibility> GetVisibilityAsync() =>
+        TaskVisibility.From(await Access.GetFileActorAsync());
+
+    private sealed record NotificationScope(Guid? AuthorUserId, bool AllAuthors);
+
     private async Task CancelTaskAsync(Guid taskId)
     {
+        if (!await Access.HasApplicationAccessAsync())
+        {
+            _loadError = L["Auth_AccessDenied_Detail"];
+            return;
+        }
+
         if (!_cancelPending.Add(taskId))
         {
             return;
@@ -348,7 +382,8 @@
 
         try
         {
-            await Task.Run(() => Cancellation.CancelAsync(taskId));
+            var visibility = await GetVisibilityAsync();
+            await Task.Run(() => Cancellation.CancelAsync(taskId, visibility));
         }
         catch (Exception)
         {
@@ -407,11 +442,18 @@
             return;
         }
 
+        if (!await Access.HasApplicationAccessAsync())
+        {
+            _clearError = L["Auth_AccessDenied_Detail"];
+            return;
+        }
+
         _clearing = true;
         _clearError = null;
         try
         {
-            var deleted = await Task.Run(() => Repository.DeleteInactiveAsync());
+            var visibility = await GetVisibilityAsync();
+            var deleted = await Task.Run(() => Repository.DeleteInactiveAsync(visibility));
             _lastDeletedCount = deleted;
             _clearDialog = false;
             _clearConfirmed = false;

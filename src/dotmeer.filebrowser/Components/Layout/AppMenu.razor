@@ -1,8 +1,10 @@
 @rendermode InteractiveServer
 @inject IStringLocalizer<SharedResources> L
+@inject AuthOptions AuthOptions
+@inject AccessGuard Access
 
 <div class="menu-wrap">
-    <button class="burger" type="button" @onclick="ToggleMenu" aria-label="@L["Меню"]" aria-haspopup="true" aria-expanded="@(_menuOpen ? "true" : "false")">
+    <button class="burger" type="button" @onclick="ToggleMenuAsync" aria-label="@L["Меню"]" aria-haspopup="true" aria-expanded="@(_menuOpen ? "true" : "false")">
         <span class="bar"></span>
         <span class="bar"></span>
         <span class="bar"></span>
@@ -11,15 +13,50 @@
     {
         <div class="menu-overlay" @onclick="CloseMenu"></div>
         <nav class="dropdown" aria-label="@L["Меню приложения"]">
-            <a href="settings" @onclick="CloseMenu">@L["Настройки"]</a>
+            <CascadingAuthenticationState>
+                <AuthorizeView Policy="@AuthPolicies.Application">
+                    <Authorized>
+                        <a href="settings" @onclick="CloseMenu">@L["Настройки"]</a>
+                        @if (AuthOptions.IsLocal && _isAdmin)
+                        {
+                            <a href="users" @onclick="CloseMenu">@L["Users_Menu"]</a>
+                        }
+                    </Authorized>
+                </AuthorizeView>
+                @if (AuthOptions.IsLocal)
+                {
+                    <AuthorizeView>
+                        <Authorized>
+                            <a href="change-password" @onclick="CloseMenu">@L["Auth_ChangePassword_Menu"]</a>
+                            <form class="menu-form" method="post" action="@AuthEndpoints.LogoutPath">
+                                <AntiforgeryToken />
+                                <button class="menu-action" type="submit">@L["Auth_Logout"]</button>
+                            </form>
+                        </Authorized>
+                        <NotAuthorized>
+                            <a href="login" @onclick="CloseMenu">@L["Auth_SignIn"]</a>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                }
+            </CascadingAuthenticationState>
         </nav>
     }
 </div>
 
 @code {
     private bool _menuOpen;
+    private bool _isAdmin;
 
-    private void ToggleMenu() => _menuOpen = !_menuOpen;
+    private async Task ToggleMenuAsync()
+    {
+        if (!_menuOpen)
+        {
+            // Полномочия admin перечитываются из SQLite при открытии меню.
+            _isAdmin = await Access.IsAdminAsync();
+        }
+
+        _menuOpen = !_menuOpen;
+    }
 
     private void CloseMenu() => _menuOpen = false;
 }

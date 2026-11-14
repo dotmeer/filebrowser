@@ -1,0 +1,15 @@
+@page "/access-denied"
+@attribute [Authorize(Policy = AuthPolicies.Authenticated)]
+@inject IStringLocalizer<SharedResources> L
+
+<PageTitle>@L["Auth_AccessDenied_Title"]</PageTitle>
+
+<section class="auth-page">
+    <h1>@L["Auth_AccessDenied_Title"]</h1>
+    <p class="auth-description">@L["Auth_AccessDenied_Explanation"]</p>
+
+    <form class="auth-form auth-secondary" method="post" action="@AuthEndpoints.LogoutPath">
+        <AntiforgeryToken />
+        <button class="btn btn-outline-secondary" type="submit">@L["Auth_Logout"]</button>
+    </form>
+</section>

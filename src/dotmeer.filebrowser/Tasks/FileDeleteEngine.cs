@@ -1,3 +1,4 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using Microsoft.Data.Sqlite;
@@ -18,8 +19,9 @@ public class FileDeleteEngine(
     ApplicationPaths applicationPaths,
     TaskMetrics? metrics = null)
 {
-    internal async Task<FileDeletePlan> BuildPlanAsync(FileTask task, CancellationToken cancellationToken)
+    internal async Task<FileDeletePlan> BuildPlanAsync(FileTask task, CancellationToken cancellationToken, FileActor? actor = null)
     {
+        var access = actor ?? FileActor.Unrestricted;
         var errors = new List<FileDeletePlanError>();
         var entries = new List<FileDeletePlanEntry>();
         var artifacts = await repository.GetTemporaryArtifactsAsync(cancellationToken);
@@ -29,6 +31,7 @@ public class FileDeleteEngine(
             try
             {
                 var resolved = pathResolver.ResolveExisting(source);
+                access.EnsureMutableBranch(resolved.Root, resolved.PhysicalPath);
                 if (string.IsNullOrEmpty(resolved.RelativePath))
                 {
                     errors.Add(new FileDeletePlanError(source, FileTaskErrorCodes.RootAsSource));
@@ -43,6 +46,10 @@ public class FileDeleteEngine(
                 }
 
                 entries.Add(new FileDeletePlanEntry(source, resolved, scan.Bytes, scan.Items));
+            }
+            catch (FileSystemAccessDeniedException)
+            {
+                errors.Add(new FileDeletePlanError(source, FileTaskErrorCodes.SourceAccessDenied));
             }
             catch (UnsupportedFileSystemObjectException)
             {
@@ -215,6 +222,9 @@ public class FileDeleteEngine(
 
     internal Task CancelItemAsync(Guid taskId, FileDeletePlanEntry entry, CancellationToken cancellationToken) =>
         repository.UpdateTaskItemAsync(taskId, entry.Source, "not_processed", FileTaskErrorCodes.CancelledByUser, 0, entry.ItemCount, cancellationToken);
+
+    internal Task RevokeItemAsync(Guid taskId, FileDeletePlanEntry entry, CancellationToken cancellationToken) =>
+        repository.UpdateTaskItemAsync(taskId, entry.Source, "not_processed", FileTaskErrorCodes.AccessDenied, 0, entry.ItemCount, cancellationToken);
 
     internal async Task SkipRemainingAsync(Guid taskId, FileDeletePlan plan, int currentIndex, string skipErrorCode, CancellationToken cancellationToken)
     {

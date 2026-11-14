@@ -15,6 +15,23 @@ public sealed class PathResolver
 
     public ResolvedPath ResolveExisting(FileRef fileRef) => ResolveExisting(fileRef, allowTemporaryArtifacts: false);
 
+    /// <summary>Maps a syntactically valid public reference to its physical candidate without touching the filesystem.</summary>
+    public ResolvedPath ResolveCandidate(FileRef fileRef)
+    {
+        ArgumentNullException.ThrowIfNull(fileRef);
+        var segments = ValidateRelativePath(fileRef.Path);
+        ValidateSegments(segments);
+        ValidatePublicSegments(segments);
+        var (root, relativeSegments) = ResolveRoot(fileRef.Root, segments);
+        var physicalPath = relativeSegments.Aggregate(root.PhysicalPath, (current, segment) => Path.Combine(current, segment));
+        physicalPath = Path.GetFullPath(physicalPath);
+        if (!PathInspection.IsWithin(root.PhysicalPath, physicalPath))
+        {
+            throw new InvalidFileSystemRequestException("Путь находится вне разрешённого корня.");
+        }
+        return new ResolvedPath(root.Name, string.Join('/', relativeSegments), physicalPath, false);
+    }
+
     /// <summary>
     /// Resolves a path that belongs to a registered temporary artifact.
     /// Used only by startup cleanup; public operations must use <see cref="ResolveExisting(FileRef)"/>.
@@ -25,9 +42,10 @@ public sealed class PathResolver
     {
         ArgumentNullException.ThrowIfNull(fileRef);
         var segments = ValidateRelativePath(fileRef.Path);
-        if (!allowTemporaryArtifacts && segments.Any(IsTemporaryArtifactName))
+        ValidateSegments(segments);
+        if (!allowTemporaryArtifacts)
         {
-            throw new InvalidFileSystemRequestException("Служебные объекты недоступны через публичные операции.");
+            ValidatePublicSegments(segments);
         }
 
         // Виртуальный корень «Все корни» read-only только на верхнем уровне.
@@ -41,6 +59,10 @@ public sealed class PathResolver
         for (var index = 0; index < relativeSegments.Count; index++)
         {
             currentPath = Path.Combine(currentPath, relativeSegments[index]);
+            if (!PathInspection.IsWithin(root.PhysicalPath, currentPath))
+            {
+                throw new InvalidFileSystemRequestException("Путь находится вне разрешённого корня.");
+            }
             if (!PathInspection.Exists(currentPath))
             {
                 throw new FileSystemObjectNotFoundException("Запрошенный объект не существует.");
@@ -104,7 +126,7 @@ public sealed class PathResolver
         if (string.IsNullOrWhiteSpace(name)
             || name is "." or ".."
             || name.IndexOfAny(['/', '\\', '\0']) >= 0
-            || IsTemporaryArtifactName(name))
+            || IsReservedTemporaryArtifactName(name))
         {
             throw new InvalidFileSystemRequestException("Имя объекта недопустимо.");
         }
@@ -146,8 +168,27 @@ public sealed class PathResolver
         return segments;
     }
 
-    private static bool IsTemporaryArtifactName(string name) =>
-        name.StartsWith(TemporaryArtifactPrefix, StringComparison.Ordinal);
+    private static void ValidateSegments(IReadOnlyList<string> segments)
+    {
+        if (OperatingSystem.IsWindows() && segments.Any(segment => segment.Length >= 2
+                && char.IsAsciiLetter(segment[0]) && segment[1] == ':'))
+        {
+            throw new InvalidFileSystemRequestException("Относительный путь недопустим.");
+        }
+    }
+
+    /// <summary>True for names reserved for registered temporary file artifacts.</summary>
+    public static bool IsReservedTemporaryArtifactName(string name) =>
+        name.StartsWith(TemporaryArtifactPrefix,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static void ValidatePublicSegments(IReadOnlyList<string> segments)
+    {
+        if (segments.Any(IsReservedTemporaryArtifactName))
+        {
+            throw new InvalidFileSystemRequestException("Служебные объекты недоступны через публичные операции.");
+        }
+    }
 
     private static void EnsureRootIsAvailable(ConfiguredRoot root)
     {

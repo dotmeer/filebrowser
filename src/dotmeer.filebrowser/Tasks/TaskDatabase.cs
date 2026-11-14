@@ -153,6 +153,81 @@ public sealed class TaskDatabase
             insertMigration.ExecuteNonQuery();
         }
 
+        if (!MigrationApplied(connection, transaction, 4))
+        {
+            // Локальные учётные записи и серверные сессии. Внутренний ID — GUID,
+            // права и будущие задачи ссылаются на него. Частичный уникальный
+            // индекс гарантирует не более одной встроенной admin. Сессии
+            // удаляются вместе с учёткой; задачи следующей миграции сохранят
+            // идентификатор автора отдельно.
+            Execute(connection, transaction, """
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    login TEXT NOT NULL,
+                    login_normalized TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
+                    must_change_password INTEGER NOT NULL DEFAULT 0,
+                    created_at_utc TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX ux_users_single_admin ON users(is_admin) WHERE is_admin = 1;
+
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at_utc TEXT NOT NULL,
+                    expires_at_utc TEXT NOT NULL,
+                    revoked_at_utc TEXT NULL
+                );
+                CREATE INDEX ix_sessions_user ON sessions(user_id);
+                """);
+            using var insertMigration = connection.CreateCommand();
+            insertMigration.Transaction = transaction;
+            insertMigration.CommandText = "INSERT INTO schema_migrations(version, applied_at_utc) VALUES ($version, $appliedAtUtc);";
+            insertMigration.Parameters.AddWithValue("$version", 4);
+            insertMigration.Parameters.AddWithValue("$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O"));
+            insertMigration.ExecuteNonQuery();
+        }
+
+        if (!MigrationApplied(connection, transaction, 5))
+        {
+            // Права обычных учётных записей по именам настроенных корней.
+            // Отсутствие строки означает «нет доступа»; admin не зависит от
+            // этой таблицы и всегда имеет полный доступ.
+            Execute(connection, transaction, """
+                CREATE TABLE user_root_permissions (
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    root_name TEXT NOT NULL,
+                    access TEXT NOT NULL CHECK (access IN ('read', 'write')),
+                    PRIMARY KEY (user_id, root_name)
+                );
+                """);
+            using var insertMigration = connection.CreateCommand();
+            insertMigration.Transaction = transaction;
+            insertMigration.CommandText = "INSERT INTO schema_migrations(version, applied_at_utc) VALUES ($version, $appliedAtUtc);";
+            insertMigration.Parameters.AddWithValue("$version", 5);
+            insertMigration.Parameters.AddWithValue("$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O"));
+            insertMigration.ExecuteNonQuery();
+        }
+
+        if (!MigrationApplied(connection, transaction, 6))
+        {
+            // Автор задачи — неизменяемый ID учётной записи. Внешнего ключа нет:
+            // удаление учётки сохраняет ID в старых задачах. NULL означает
+            // анонимную (ANONYMOUS) или старую задачу до этой миграции.
+            Execute(connection, transaction, """
+                ALTER TABLE tasks ADD COLUMN author_user_id TEXT NULL;
+                CREATE INDEX ix_tasks_author ON tasks(author_user_id);
+                """);
+            using var insertMigration = connection.CreateCommand();
+            insertMigration.Transaction = transaction;
+            insertMigration.CommandText = "INSERT INTO schema_migrations(version, applied_at_utc) VALUES ($version, $appliedAtUtc);";
+            insertMigration.Parameters.AddWithValue("$version", 6);
+            insertMigration.Parameters.AddWithValue("$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O"));
+            insertMigration.ExecuteNonQuery();
+        }
+
         transaction.Commit();
     }
 

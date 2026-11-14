@@ -1,4 +1,5 @@
 ﻿@page "/"
+@attribute [Authorize(Policy = AuthPolicies.Application)]
 @implements IAsyncDisposable
 @rendermode InteractiveServer
 @using System.Globalization
@@ -17,6 +18,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JavaScript
 @inject FileBrowserConfiguration Configuration
+@inject AccessGuard Access
 @inject IStringLocalizer<SharedResources> L
 
 <PageTitle>@L["Файлы"]</PageTitle>
@@ -42,7 +44,7 @@
             <h2>@L["Каталоги"]</h2>
             @if (_roots.Count == 0 && !_rootsLoading)
             {
-                <p class="muted">@L["Корни не настроены."]</p>
+                <p class="muted">@L["Нет доступных корней."]</p>
             }
             else
             {
@@ -73,7 +75,7 @@
                         @L["Обновить"]
                     </button>
                     <button class="btn btn-primary" type="button" @onclick="OpenCreateDialog"
-                            disabled="@(_loading || _listing is null || IsVirtualRootTopLevel)"
+                            disabled="@(_loading || _listing is null || IsVirtualRootTopLevel || _listing?.CanWrite != true)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Создать папку"]
                     </button>
@@ -84,7 +86,7 @@
                     <input id="upload-input" class="visually-hidden" type="file" multiple
                            disabled="@(!CanUpload)" aria-hidden="true" />
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenRenameSelected"
-                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootTopLevel)"
+                            disabled="@(SelectedEntry is null || _loading || IsVirtualRootTopLevel || _listing?.CanWrite != true)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Переименовать"]
                     </button>
@@ -115,7 +117,7 @@
                            title="@ArchiveUnavailableHint">@L["Скачать"]</a>
                     }
                     <button class="btn btn-outline-danger" type="button" @onclick="OpenDeleteSelected"
-                            disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootTopLevel)"
+                            disabled="@(SelectedEntries.Count == 0 || _loading || IsVirtualRootTopLevel || _listing?.CanWrite != true)"
                             title="@VirtualRootReadOnlyHint">
                         @L["Удалить"]
                     </button>
@@ -232,6 +234,9 @@
                             </tbody>
                         </table>
                     </div>
+                }
+                @if (_searchResult is not null)
+                {
                     @if (_searchResult.UnavailableRoots.Count > 0)
                     {
                         <p class="search-unavailable-roots" role="status">
@@ -319,10 +324,13 @@
             {
                 <button type="button" role="menuitem" @onclick="() => DownloadArchiveAsync([_contextEntry!])">@L["Скачать"]</button>
             }
-            <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
-            <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">@L["Копировать"]</button>
-            <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">@L["Переместить"]</button>
-            <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">@L["Удалить"]</button>
+            @if (_listing?.CanWrite == true)
+            {
+                <button type="button" role="menuitem" @onclick="() => OpenRename(_contextEntry!)">@L["Переименовать"]</button>
+                <button type="button" role="menuitem" @onclick="() => OpenCopy(_contextEntry!)">@L["Копировать"]</button>
+                <button type="button" role="menuitem" @onclick="() => OpenMove(_contextEntry!)">@L["Переместить"]</button>
+                <button type="button" role="menuitem" @onclick="() => OpenDelete(_contextEntry!)">@L["Удалить"]</button>
+            }
         </div>
     }
 
@@ -397,7 +405,7 @@
 
     @if (_taskType is not null && _listing is not null)
     {
-        <DestinationPicker Roots="@_roots" TaskType="@_taskType.Value"
+        <DestinationPicker Roots="@WritableRoots" TaskType="@_taskType.Value"
                            Current="@(new FileRef(_listing.Root, _listing.Path))"
                            Sources="@_taskSources" Busy="@_taskBusy" Error="@_taskError"
                            OnConfirm="EnqueueTaskAsync" OnCancel="CloseTaskDialog" />
@@ -465,7 +473,10 @@
     private FileEntryDto? SelectedEntry =>
         SelectedEntries is [var entry] ? entry : null;
 
-    private bool CanStartTask => SelectedEntries.Count > 0;
+    private bool CanStartTask => SelectedEntries.Count > 0 && _listing?.CanWrite == true;
+
+    private IReadOnlyList<RootDto> WritableRoots =>
+        _roots.Where(root => root.CanWrite).ToArray();
 
     private bool IsSearchActive => !string.IsNullOrWhiteSpace(SearchQuery);
 
@@ -521,7 +532,8 @@
     /// Загрузка доступна в обычном листинге реального корня (SPEC §9.4, §11):
     /// не в результатах поиска, не в виртуальном корне и не во время загрузки.
     /// </summary>
-    private bool CanUpload => !_loading && _listing is not null && !IsVirtualRootTopLevel;
+    private bool CanUpload =>
+        !_loading && _listing is { CanWrite: true } && !IsVirtualRootTopLevel;
 
     private string? UploadUnavailableHint =>
         IsVirtualRootTopLevel ? VirtualRootReadOnlyHint : null;
@@ -597,6 +609,11 @@
 
     private async Task LoadCurrentAsync()
     {
+        if (!await EnsureAccessAsync())
+        {
+            return;
+        }
+
         var requestVersion = ++_requestVersion;
         _searchCancellation?.Cancel();
         _searchCancellation?.Dispose();
@@ -609,7 +626,8 @@
 
         try
         {
-            _roots = await Task.Run(Reader.GetRoots);
+            var actor = await Access.GetFileActorAsync();
+            _roots = await Task.Run(() => Reader.GetRoots(actor));
             if (requestVersion != _requestVersion)
             {
                 return;
@@ -619,7 +637,7 @@
             var root = RootQuery ?? _roots.FirstOrDefault()?.Name;
             if (string.IsNullOrWhiteSpace(root))
             {
-                _error = L["Не настроен ни один корень файловой системы."];
+                _error = L["Нет доступных корней."];
                 _listing = null;
                 _searchResult = null;
                 return;
@@ -649,7 +667,8 @@
                             ext: null,
                             extGlobs: null,
                             limit: FileSystemSearchService.DefaultResultLimit,
-                            cancellationToken: searchCancellation.Token),
+                            cancellationToken: searchCancellation.Token,
+                            actor: actor),
                         searchCancellation.Token);
                     if (requestVersion != _requestVersion || searchCancellation.IsCancellationRequested)
                     {
@@ -674,7 +693,7 @@
             else
             {
                 _searchResult = null;
-                _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty)));
+                _listing = await Task.Run(() => Reader.List(new FileRef(root, PathQuery ?? string.Empty), actor));
             }
         }
         catch (OperationCanceledException)
@@ -723,14 +742,15 @@
     [JSInvokable]
     public async Task OnUploadCancelRequested(string uploadId)
     {
-        if (_disposed || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
+        if (_disposed || !await EnsureAccessAsync() || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
         {
             return;
         }
 
         try
         {
-            await Task.Run(() => Cancellation.CancelAsync(taskId));
+            var visibility = TaskVisibility.From(await Access.GetFileActorAsync());
+            await Task.Run(() => Cancellation.CancelAsync(taskId, visibility));
         }
         catch (Exception)
         {
@@ -741,17 +761,18 @@
     [JSInvokable]
     public async Task<string?> GetUploadTaskOutcome(string uploadId)
     {
-        if (_disposed || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
+        if (_disposed || !await EnsureAccessAsync() || !Guid.TryParse(uploadId, out var taskId) || taskId == Guid.Empty)
         {
             return null;
         }
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var visibility = TaskVisibility.From(await Access.GetFileActorAsync());
         while (!_disposed && !timeout.IsCancellationRequested)
         {
             try
             {
-                var task = await Task.Run(() => TaskRepository.GetAsync(taskId, timeout.Token), timeout.Token);
+                var task = await Task.Run(() => TaskRepository.GetAsync(taskId, visibility, timeout.Token), timeout.Token);
                 if (task is not null && task.Type != FileTaskType.Upload)
                 {
                     return null;
@@ -781,7 +802,7 @@
     [JSInvokable]
     public async Task OnUploadsChanged()
     {
-        if (_disposed)
+        if (_disposed || !await EnsureAccessAsync())
         {
             return;
         }
@@ -949,7 +970,7 @@
 
     private void OpenTaskDialog(FileTaskType type, IReadOnlyList<FileEntryDto> entries)
     {
-        if (_listing is null || entries.Count == 0)
+        if (_listing is not { CanWrite: true } || entries.Count == 0)
         {
             return;
         }
@@ -976,7 +997,7 @@
 
     private async Task EnqueueTaskAsync(FileRef destination)
     {
-        if (_taskType is null || _taskSources.Count == 0)
+        if (_taskType is null || _taskSources.Count == 0 || _listing is not { CanWrite: true } || !await EnsureAccessAsync())
         {
             return;
         }
@@ -987,7 +1008,8 @@
         _taskError = null;
         try
         {
-            await Task.Run(async () => await Dispatcher.EnqueueAsync(type, sources, destination));
+            var actor = await Access.GetFileActorAsync();
+            await Task.Run(async () => await Dispatcher.EnqueueAsync(type, sources, destination, actor: actor));
             _taskStatus = L["Задача поставлена в очередь."];
             _taskType = null;
             _taskSources = [];
@@ -1019,6 +1041,11 @@
     /// </summary>
     private async Task DownloadArchiveAsync(IReadOnlyList<FileEntryDto> entries)
     {
+        if (!await EnsureAccessAsync())
+        {
+            return;
+        }
+
         if (_listing is null
             || entries.Count == 0
             || entries is [{ Kind: "file" }]
@@ -1038,8 +1065,9 @@
         var names = entries.Select(entry => entry.Name).ToArray();
         try
         {
-            await Task.Run(() => ArchiveService.Plan(new FileRef(root, basePath), names, CancellationToken.None));
-            var ticket = ArchiveTickets.Create(new ArchiveSelection(root, basePath, names));
+            var actor = await Access.GetFileActorAsync();
+            await Task.Run(() => ArchiveService.Plan(new FileRef(root, basePath), names, CancellationToken.None, actor));
+            var ticket = ArchiveTickets.Create(new ArchiveSelection(root, basePath, names, actor.UserId));
             _archiveStatus = null;
             Navigation.NavigateTo($"/api/fs/zip?ticket={Uri.EscapeDataString(ticket)}", forceLoad: true);
         }
@@ -1056,28 +1084,35 @@
 
     private async Task CreateDirectoryAsync()
     {
-        if (_listing is null)
+        if (_listing is not { CanWrite: true })
         {
             return;
         }
 
-        await ExecuteMutationAsync(() => Writer.CreateDirectory(new FileRef(_listing.Root, _listing.Path), _newFolderName));
+        var actor = await Access.GetFileActorAsync();
+        await ExecuteMutationAsync(() => Writer.CreateDirectory(new FileRef(_listing.Root, _listing.Path), _newFolderName, actor));
     }
 
     private async Task RenameAsync()
     {
-        if (_listing is null || _dialogTarget is null)
+        if (_listing is not { CanWrite: true } || _dialogTarget is null)
         {
             return;
         }
 
+        var actor = await Access.GetFileActorAsync();
         var source = new FileRef(_listing.Root, _dialogTarget.Path);
-        await ExecuteMutationAsync(() => Writer.Rename(source, _newName));
+        await ExecuteMutationAsync(() => Writer.Rename(source, _newName, actor));
     }
 
     private async Task DeleteAsync()
     {
-        if (_listing is null || _deleteTargets.Count == 0 || !_deleteConfirmed)
+        if (!await EnsureAccessAsync())
+        {
+            return;
+        }
+
+        if (_listing is not { CanWrite: true } || _deleteTargets.Count == 0 || !_deleteConfirmed)
         {
             return;
         }
@@ -1092,7 +1127,8 @@
         _operationError = null;
         try
         {
-            await Task.Run(async () => await Dispatcher.EnqueueAsync(FileTaskType.Delete, sources, sourceFolder));
+            var actor = await Access.GetFileActorAsync();
+            await Task.Run(async () => await Dispatcher.EnqueueAsync(FileTaskType.Delete, sources, sourceFolder, actor: actor));
             _operationInProgress = false;
             _selection.Clear();
             CloseDialog();
@@ -1109,6 +1145,11 @@
 
     private async Task ExecuteMutationAsync(Action mutation)
     {
+        if (!await EnsureAccessAsync())
+        {
+            return;
+        }
+
         _operationInProgress = true;
         _operationError = null;
         try
@@ -1137,6 +1178,18 @@
         };
         Navigation.NavigateTo(QueryHelpers.AddQueryString("/", query));
         return Task.CompletedTask;
+    }
+
+    private async Task<bool> EnsureAccessAsync()
+    {
+        var level = await Access.GetAccessLevelAsync();
+        if (level == AccessLevel.Full)
+        {
+            return true;
+        }
+
+        Navigation.NavigateTo(AccessGuard.GetRedirectPath(level), forceLoad: true);
+        return false;
     }
 
     private Task GoToFirstRootAsync()
@@ -1221,6 +1274,7 @@
     private string GetSafeError(Exception exception) => exception switch
     {
         RootUnavailableException => L["Корень временно недоступен."],
+        FileSystemAccessDeniedException => L["Недостаточно прав для выполнения операции."],
         FileSystemObjectNotFoundException => L["Корень или каталог не найден. Возможно, объект был перемещён или удалён."],
         UnsupportedFileSystemObjectException => L["Этот объект файловой системы не поддерживается."],
         InvalidFileSystemRequestException => L["Некорректный адрес каталога."],

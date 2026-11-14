@@ -1,4 +1,6 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Archive;
+using dotmeer.filebrowser.Auth;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
 using Microsoft.AspNetCore.Http.Features;
@@ -32,11 +34,21 @@ public static class ArchiveEndpoint
         ArchiveTicketStore tickets,
         FileSystemArchiveService archiveService,
         ArchiveMetrics metrics,
+        AuthOptions authOptions,
+        AuthService auth,
+        FileAccessService fileAccess,
         HttpContext httpContext,
         IStringLocalizer<SharedResources> localizer,
         ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("dotmeer.filebrowser.Archive");
+        if (await HttpAccess.RejectIfDeniedAsync(httpContext, authOptions, auth, localizer) is { } denied)
+        {
+            return denied;
+        }
+
+        var actor = await fileAccess.CreateAsync(httpContext.User, httpContext.RequestAborted);
+
         if (string.IsNullOrEmpty(ticket))
         {
             metrics.ArchiveRejected();
@@ -49,7 +61,7 @@ public static class ArchiveEndpoint
                 localizer);
         }
 
-        if (!tickets.TryRedeem(ticket, out var selection))
+        if (!tickets.TryRedeem(ticket, actor, out var selection))
         {
             metrics.ArchiveRejected();
             return Problem(
@@ -78,7 +90,7 @@ public static class ArchiveEndpoint
         try
         {
             plan = await Task.Run(
-                () => archiveService.Plan(selection.ToFileRef(), selection.Names, httpContext.RequestAborted),
+                () => archiveService.Plan(selection.ToFileRef(), selection.Names, httpContext.RequestAborted, actor),
                 httpContext.RequestAborted);
         }
         catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)

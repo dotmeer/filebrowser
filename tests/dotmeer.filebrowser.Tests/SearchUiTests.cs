@@ -146,6 +146,21 @@ public sealed class SearchUiTests
         Assert.Contains("Nothing found.", html);
     }
 
+    [Theory]
+    [InlineData("en", "Application settings are defined in <code>config.yaml</code>.")]
+    [InlineData("ru", "Настройки приложения задаются в файле <code>config.yaml</code>.")]
+    public async Task SettingsPage_RendersConfigurationFilenameOnce(string language, string expected)
+    {
+        using var workspace = new TestWorkspace();
+        using var host = CreateHost(workspace);
+        await SetLanguageAsync(host, language);
+
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/settings"));
+
+        Assert.Contains(expected, html);
+        Assert.Single(Regex.Matches(html, "config\\.yaml").Cast<Match>());
+    }
+
     [Fact]
     public async Task BrowsePage_TruncatedSearch_RendersNoticeBelowResults()
     {

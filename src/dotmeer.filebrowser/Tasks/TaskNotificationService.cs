@@ -10,7 +10,31 @@ public enum TaskChangeKind
     HistoryCleared
 }
 
-public sealed record TaskChangeNotification(TaskChangeKind Kind, Guid? TaskId);
+public sealed record TaskChangeNotification(TaskChangeKind Kind, Guid? TaskId, Guid? AuthorUserId = null, TaskVisibility? Scope = null)
+{
+    public bool IsGlobal => Scope is { AllAuthors: true };
+
+    public bool Affects(TaskVisibility viewer)
+    {
+        var scope = Scope ?? (AuthorUserId is { } author ? TaskVisibility.ForUser(author) : TaskVisibility.Everything);
+        if (Kind == TaskChangeKind.HistoryCleared && scope.AllAuthors)
+        {
+            return viewer.AllAuthors || viewer.AuthorUserId is { } userId && userId != Guid.Empty;
+        }
+
+        if (viewer.AllAuthors)
+        {
+            return true;
+        }
+
+        if (scope.AllAuthors)
+        {
+            return false;
+        }
+
+        return viewer.AuthorUserId is { } viewerId && viewerId == scope.AuthorUserId;
+    }
+}
 
 public sealed class TaskNotificationService(ILogger<TaskNotificationService>? logger = null)
 {

@@ -1,9 +1,11 @@
+using dotmeer.filebrowser.Access;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
 using dotmeer.filebrowser.Tasks;
 using System.Buffers;
 using System.IO.Pipelines;
+using Microsoft.Data.Sqlite;
 
 namespace dotmeer.filebrowser.Uploads;
 
@@ -20,10 +22,17 @@ public sealed class UploadService(
     TaskProgressService runtimeProgress,
     FileBrowserConfiguration configuration,
     TaskOperationGate operationGate,
+    TaskAccessService? accessService = null,
     UploadMetrics? metrics = null)
 {
     private const int BufferSize = 128 * 1024;
     private const int ArtifactNameAttempts = 10;
+
+    /// <summary>
+    /// Как часто приостановленный приём тела перепроверяет права автора в
+    /// SQLite. Проверка не ждёт следующего байта и не подменяет сетевой обрыв.
+    /// </summary>
+    private static readonly TimeSpan AccessCheckInterval = TimeSpan.FromSeconds(1);
 
     internal Func<UploadPublishCheckpoint, Task>? PublishCheckpointAsync { get; set; }
     internal TaskOperationGate OperationGate => operationGate;
@@ -32,13 +41,19 @@ public sealed class UploadService(
     /// Проверяет имя, родительский каталог, конфликт имени, лимит размера
     /// и свободное место. Задачу не создаёт и файлов не изменяет.
     /// </summary>
-    public UploadPreflight Prepare(FileRef parent, string name, long? contentLength)
+    public UploadPreflight Prepare(FileRef parent, string name, long? contentLength, FileActor? actor = null)
     {
         ArgumentNullException.ThrowIfNull(parent);
+        var access = actor ?? FileActor.Unrestricted;
 
         // Отдельный вызов до ResolveNewChild: недопустимое имя должно
         // возвращаться как invalid_name, а не как общая ошибка пути.
         PathResolver.ValidateNewName(name);
+        var parentCandidate = pathResolver.ResolveCandidate(parent);
+        access.EnsureWritablePathCandidate(parentCandidate);
+        var finalCandidate = pathResolver.ResolveCandidate(new FileRef(parentCandidate.Root,
+            string.IsNullOrEmpty(parentCandidate.RelativePath) ? name : $"{parentCandidate.RelativePath}/{name}"));
+        access.EnsureNotProtectedDestination(finalCandidate.PhysicalPath);
 
         if (contentLength is < 0)
         {
@@ -54,6 +69,8 @@ public sealed class UploadService(
         var finalPath = pathResolver.ResolveNewChild(parent, name);
         var parentPhysicalPath = Path.GetDirectoryName(finalPath.PhysicalPath)
             ?? throw new InvalidFileSystemRequestException("Не удалось определить каталог назначения.");
+        access.EnsureWritablePath(finalPath.Root, parentPhysicalPath);
+        access.EnsureNotProtectedDestination(finalPath.PhysicalPath);
 
         if (contentLength is > 0)
         {
@@ -71,7 +88,11 @@ public sealed class UploadService(
     /// Создаёт задачу <c>upload</c> в состоянии scanning и регистрирует
     /// временный артефакт до его появления на диске (SPEC §13.5).
     /// </summary>
-    public async Task<UploadSession> StartAsync(UploadPreflight preflight, CancellationToken cancellationToken, Guid? taskId = null)
+    public async Task<UploadSession> StartAsync(
+        UploadPreflight preflight,
+        CancellationToken cancellationToken,
+        Guid? taskId = null,
+        Guid? authorUserId = null)
     {
         ArgumentNullException.ThrowIfNull(preflight);
         if (preflight.ContentLength is null)
@@ -88,7 +109,8 @@ public sealed class UploadService(
             preflight.ContentLength,
             1,
             cancellationToken,
-            taskId);
+            taskId,
+            authorUserId);
 
         try
         {
@@ -111,7 +133,7 @@ public sealed class UploadService(
                         task.Id,
                         new FileRef(preflight.FinalPath.Root, relativePath),
                         cancellationToken);
-                    return new UploadSession(task.Id, preflight, physicalPath, artifact.Id);
+                    return new UploadSession(task.Id, preflight, physicalPath, artifact.Id, authorUserId);
                 }
                 catch (Microsoft.Data.Sqlite.SqliteException exception) when (SqliteErrors.IsUniqueConstraint(exception))
                 {
@@ -167,6 +189,18 @@ public sealed class UploadService(
 
         var expectedLength = session.Preflight.ContentLength
             ?? throw new InvalidOperationException("Для приёма файла требуется Content-Length.");
+
+        // Отзыв прав до открытия временного файла: задача завершается отказом
+        // без создания артефакта и без ожидания байтов.
+        if (accessService is not null && session.AuthorUserId is not null)
+        {
+            await accessService.EnsureUploadWritableAsync(
+                session.AuthorUserId,
+                session.Preflight.FinalPath.Root,
+                session.Preflight.ParentPhysicalPath,
+                cancellationToken);
+        }
+
         await repository.TransitionAsync(session.TaskId, FileTaskStatus.Running, "uploading", cancellationToken: cancellationToken);
 
         await using var destination = new FileStream(
@@ -182,61 +216,106 @@ public sealed class UploadService(
             ((PipeReader)state!).CancelPendingRead();
         }, body);
 
+        // Отзыв прав прекращает ожидающее чтение тела, не дожидаясь байта.
+        using var accessRevoked = new CancellationTokenSource();
+        using var revokeRegistration = accessRevoked.Token.Register(static state =>
+        {
+            ((PipeReader)state!).CancelPendingRead();
+        }, body);
+        using var watchStop = new CancellationTokenSource();
+        var accessWatchFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accessWatch = StartAccessWatchAsync(session, accessRevoked, watchStop.Token, body, accessWatchFailure);
+
         var buffer = new byte[BufferSize];
         var total = 0L;
         var lastPersisted = DateTimeOffset.UtcNow;
         var maxFileBytes = configuration.Uploads.MaxFileBytes;
 
-        while (true)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var result = await body.ReadAsync(bodyReadCancellationToken);
-            var remaining = result.Buffer;
-            var consumed = result.Buffer.Start;
-            var examined = result.Buffer.End;
-            try
+            while (true)
             {
-                if (result.IsCanceled)
+                if (accessWatchFailure.Task.IsCompleted)
                 {
-                    examined = consumed;
-                    cancellationToken.ThrowIfCancellationRequested();
-                    bodyReadCancellationToken.ThrowIfCancellationRequested();
-                    continue;
+                    throw await accessWatchFailure.Task;
                 }
 
-                while (!remaining.IsEmpty)
+                if (accessRevoked.IsCancellationRequested)
                 {
-                    var chunkLength = (int)Math.Min(remaining.Length, buffer.Length);
-                    remaining.Slice(0, chunkLength).CopyTo(buffer);
-                    remaining = remaining.Slice(chunkLength);
-                    consumed = remaining.Start;
-
-                    total += chunkLength;
-                    if (total > maxFileBytes)
-                    {
-                        throw new FileTooLargeException();
-                    }
-
-                    await destination.WriteAsync(buffer.AsMemory(0, chunkLength), cancellationToken);
-                    runtimeProgress.Report(session.TaskId, total);
-
-                    var now = DateTimeOffset.UtcNow;
-                    if (now - lastPersisted >= TimeSpan.FromSeconds(1))
-                    {
-                        await repository.UpdateProgressAsync(session.TaskId, total, expectedLength, 0, 1, cancellationToken);
-                        lastPersisted = now;
-                    }
+                    throw new FileTaskAccessRevokedException();
                 }
 
-                consumed = result.Buffer.End;
-                if (result.IsCompleted)
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await body.ReadAsync(bodyReadCancellationToken);
+                var remaining = result.Buffer;
+                var consumed = result.Buffer.Start;
+                var examined = result.Buffer.End;
+                try
                 {
-                    break;
+                    if (result.IsCanceled)
+                    {
+                        examined = consumed;
+                        if (accessWatchFailure.Task.IsCompleted)
+                        {
+                            throw await accessWatchFailure.Task;
+                        }
+
+                        if (accessRevoked.IsCancellationRequested)
+                        {
+                            throw new FileTaskAccessRevokedException();
+                        }
+
+                        cancellationToken.ThrowIfCancellationRequested();
+                        bodyReadCancellationToken.ThrowIfCancellationRequested();
+                        continue;
+                    }
+
+                    while (!remaining.IsEmpty)
+                    {
+                        var chunkLength = (int)Math.Min(remaining.Length, buffer.Length);
+                        remaining.Slice(0, chunkLength).CopyTo(buffer);
+                        remaining = remaining.Slice(chunkLength);
+                        consumed = remaining.Start;
+
+                        total += chunkLength;
+                        if (total > maxFileBytes)
+                        {
+                            throw new FileTooLargeException();
+                        }
+
+                        await destination.WriteAsync(buffer.AsMemory(0, chunkLength), cancellationToken);
+                        runtimeProgress.Report(session.TaskId, total);
+
+                        var now = DateTimeOffset.UtcNow;
+                        if (now - lastPersisted >= TimeSpan.FromSeconds(1))
+                        {
+                            await repository.UpdateProgressAsync(session.TaskId, total, expectedLength, 0, 1, cancellationToken);
+                            lastPersisted = now;
+                        }
+                    }
+
+                    consumed = result.Buffer.End;
+                    if (result.IsCompleted)
+                    {
+                        break;
+                    }
+                }
+                finally
+                {
+                    body.AdvanceTo(consumed, examined);
                 }
             }
-            finally
+        }
+        finally
+        {
+            watchStop.Cancel();
+            try
             {
-                body.AdvanceTo(consumed, examined);
+                await accessWatch;
+            }
+            catch (OperationCanceledException) when (watchStop.IsCancellationRequested)
+            {
+                // Наблюдатель остановлен вместе с приёмом тела.
             }
         }
 
@@ -274,6 +353,25 @@ public sealed class UploadService(
                 // Отмена, первой вошедшая в gate, не допускает финальный файл.
                 await AbortAsync(session, UploadAbortReason.UserCancelled, FileTaskErrorCodes.CancelledByUser);
                 return UploadPublishOutcome.Cancelled;
+            }
+
+            // Источник истины — текущие права автора в SQLite. Отзыв до
+            // публикации оставляет конечное имя свободным и запускает cleanup.
+            if (accessService is not null && session.AuthorUserId is not null)
+            {
+                try
+                {
+                    await accessService.EnsureUploadWritableAsync(
+                        session.AuthorUserId,
+                        session.Preflight.FinalPath.Root,
+                        session.Preflight.ParentPhysicalPath,
+                        CancellationToken.None);
+                }
+                catch (FileTaskAccessRevokedException)
+                {
+                    await AbortAsync(session, UploadAbortReason.AccessRevoked, FileTaskErrorCodes.AccessDenied);
+                    throw;
+                }
             }
 
             try
@@ -468,6 +566,55 @@ public sealed class UploadService(
         }
     }
 
+    private async Task StartAccessWatchAsync(
+        UploadSession session,
+        CancellationTokenSource revoked,
+        CancellationToken stop,
+        PipeReader body,
+        TaskCompletionSource<Exception> failure)
+    {
+        if (accessService is null || session.AuthorUserId is null)
+        {
+            return;
+        }
+
+        using var timer = new PeriodicTimer(AccessCheckInterval);
+        while (true)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(stop)) return;
+                var allowed = await accessService.CanContinueUploadAsync(
+                    session.AuthorUserId,
+                    session.Preflight.FinalPath.Root,
+                    session.Preflight.ParentPhysicalPath,
+                    stop);
+                if (!allowed)
+                {
+                    revoked.Cancel();
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+            {
+                // SQLITE_BUSY/LOCKED временно пропускают этот тик. Повторная
+                // проверка будет выполнена в следующем цикле; публикация
+                // отдельно требует успешной проверки. Прочие ошибки выходят
+                // в приём тела, который завершается с ошибкой.
+            }
+            catch (Exception exception)
+            {
+                failure.TrySetResult(exception);
+                body.CancelPendingRead();
+                return;
+            }
+        }
+    }
+
     private static bool TryDeleteTemporary(string physicalPath)
     {
         try
@@ -524,12 +671,14 @@ public sealed record UploadSession(
     Guid TaskId,
     UploadPreflight Preflight,
     string TemporaryPhysicalPath,
-    long ArtifactId);
+    long ArtifactId,
+    Guid? AuthorUserId = null);
 
 public enum UploadAbortReason
 {
     UserCancelled,
     ClientDisconnected,
+    AccessRevoked,
     Error
 }
 

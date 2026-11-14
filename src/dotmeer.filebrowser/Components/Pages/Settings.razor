@@ -1,9 +1,13 @@
 @page "/settings"
+@attribute [Authorize(Policy = AuthPolicies.Application)]
 @rendermode InteractiveServer
 @using dotmeer.filebrowser.Settings
 @inject IStringLocalizer<SharedResources> L
 @inject AppSettingsService AppSettings
+@inject LanguageSettingsService LanguageSettings
+@inject AuthOptions AuthOptions
 @inject NavigationManager Navigation
+@inject AccessGuard Access
 
 <PageTitle>@L["Settings_Title"]</PageTitle>
 
@@ -15,14 +19,22 @@
 
     <section class="settings-section" aria-labelledby="language-heading">
         <h2 id="language-heading">@L["Settings_Language"]</h2>
-        <div class="settings-language-form">
-            <label class="visually-hidden" for="language-select">@L["Settings_Language"]</label>
-            <select id="language-select" class="form-select settings-language" @bind="_language">
-                <option value="en">@L["Language_English"]</option>
-                <option value="ru">@L["Language_Russian"]</option>
-            </select>
-            <button class="btn btn-outline-primary" type="button" @onclick="SaveLanguageAsync">@L["Settings_SaveLanguage"]</button>
-        </div>
+        @if (_canChangeLanguage)
+        {
+            <div class="settings-language-form">
+                <label class="visually-hidden" for="language-select">@L["Settings_Language"]</label>
+                <select id="language-select" class="form-select settings-language" @bind="_language">
+                    <option value="en">@L["Language_English"]</option>
+                    <option value="ru">@L["Language_Russian"]</option>
+                </select>
+                <button class="btn btn-outline-primary" type="button" @onclick="SaveLanguageAsync">@L["Settings_SaveLanguage"]</button>
+            </div>
+        }
+        else
+        {
+            <p>@L["Settings_LanguageCurrent"]: <strong>@GetLanguageLabel()</strong></p>
+            <p class="muted">@L["Settings_LanguageAdminOnly"]</p>
+        }
     </section>
 
     <section class="settings-section" aria-labelledby="theme-heading">
@@ -53,18 +65,38 @@
 
 @code {
     private string _language = "en";
+    private bool _canChangeLanguage;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _language = AppSettings.GetLanguage();
+        _canChangeLanguage = AuthOptions.IsAnonymous || await Access.IsAdminAsync();
     }
+
+    private string GetLanguageLabel() =>
+        _language == "ru" ? L["Language_Russian"].Value : L["Language_English"].Value;
 
     private async Task SaveLanguageAsync()
     {
+        var level = await Access.GetAccessLevelAsync();
+        if (level != AccessLevel.Full)
+        {
+            Navigation.NavigateTo(AccessGuard.GetRedirectPath(level), forceLoad: true);
+            return;
+        }
+
+        // Полномочия проверяются на сервере: в LOCAL глобальный язык меняет
+        // только admin, claim открытого circuit не является доказательством.
+        var principal = await Access.GetPrincipalAsync();
+        if (!await LanguageSettings.TrySetAsync(principal, _language, CancellationToken.None))
+        {
+            Navigation.NavigateTo("/access-denied", forceLoad: true);
+            return;
+        }
+
         // Полная перезагрузка страницы: новая культура применяется middleware
         // локализации ко всей странице и будущим Blazor circuit
         // (язык — серверная настройка из SQLite, см. StoredLanguageProvider).
-        await AppSettings.SetLanguageAsync(_language, CancellationToken.None);
         Navigation.NavigateTo("/settings", forceLoad: true);
     }
 }

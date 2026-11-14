@@ -1,5 +1,6 @@
 @using dotmeer.filebrowser.FileSystem
 @inject FileSystemReadService Reader
+@inject AccessGuard Access
 @inject IStringLocalizer<SharedResources> L
 
 <li class="tree-node">
@@ -98,11 +99,18 @@
 
     private async Task LoadChildrenAsync()
     {
+        if (!await Access.HasApplicationAccessAsync())
+        {
+            _error = L["Auth_AccessDenied_Detail"];
+            return;
+        }
+
         _loading = true;
         _error = null;
         try
         {
-            var listing = await Task.Run(() => Reader.List(new FileRef(Root, Path)));
+            var actor = await Access.GetFileActorAsync();
+            var listing = await Task.Run(() => Reader.List(new FileRef(Root, Path), actor));
             _children = listing.Entries.Where(entry => entry.Kind == "directory").ToArray();
         }
         catch (Exception exception)

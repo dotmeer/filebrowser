@@ -1,3 +1,5 @@
+using dotmeer.filebrowser.Access;
+using dotmeer.filebrowser.Auth;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 using dotmeer.filebrowser.Observability;
@@ -25,17 +27,26 @@ public static class UploadEndpoint
         app.MapPost("/api/fs/upload", HandleUploadAsync);
     }
 
-    private static IResult HandleCheck(
+    private static async Task<IResult> HandleCheck(
         string? root,
         string? path,
         string? name,
         long? size,
         UploadService uploads,
+        AuthOptions authOptions,
+        AuthService auth,
+        FileAccessService fileAccess,
         HttpContext httpContext,
         IStringLocalizer<SharedResources> localizer,
         ILoggerFactory loggerFactory,
         UploadMetrics metrics)
     {
+        if (await HttpAccess.RejectIfDeniedAsync(httpContext, authOptions, auth, localizer) is { } denied)
+        {
+            metrics.UploadRejected();
+            return denied;
+        }
+
         if (!TryValidateName(name, httpContext, localizer, metrics, out var invalidName))
         {
             return invalidName;
@@ -43,7 +54,8 @@ public static class UploadEndpoint
 
         try
         {
-            uploads.Prepare(new FileRef(root ?? string.Empty, path ?? string.Empty), name!, size);
+            var actor = await fileAccess.CreateAsync(httpContext.User, httpContext.RequestAborted);
+            uploads.Prepare(new FileRef(root ?? string.Empty, path ?? string.Empty), name!, size, actor);
             return Results.NoContent();
         }
         catch (Exception exception)
@@ -65,10 +77,19 @@ public static class UploadEndpoint
         UploadMetrics metrics,
         IAntiforgery antiforgery,
         IHostApplicationLifetime lifetime,
+        AuthOptions authOptions,
+        AuthService auth,
+        FileAccessService fileAccess,
         HttpContext httpContext,
         IStringLocalizer<SharedResources> localizer,
         ILoggerFactory loggerFactory)
     {
+        if (await HttpAccess.RejectIfDeniedAsync(httpContext, authOptions, auth, localizer) is { } denied)
+        {
+            metrics.UploadRejected();
+            return denied;
+        }
+
         try
         {
             await antiforgery.ValidateRequestAsync(httpContext);
@@ -141,12 +162,16 @@ public static class UploadEndpoint
         }
 
         UploadPreflight preflight;
+        var authorUserId = (Guid?)null;
         try
         {
+            var actor = await fileAccess.CreateAsync(httpContext.User, httpContext.RequestAborted);
+            authorUserId = actor.UserId;
             preflight = uploads.Prepare(
                 new FileRef(root ?? string.Empty, path ?? string.Empty),
                 name!,
-                contentLength);
+                contentLength,
+                actor);
         }
         catch (Exception exception)
         {
@@ -165,7 +190,7 @@ public static class UploadEndpoint
                 // Регистрация до создания задачи закрывает окно гонки:
                 // отмена, пришедшая раньше, уже лежит как pending. Только
                 // один запрос владеет источником отмены для uploadId.
-                if (!cancellationRegistry.TryRegister(requestedId, out userCancellation))
+                if (!cancellationRegistry.TryRegister(requestedId, authorUserId, out userCancellation))
                 {
                     metrics.UploadRejected();
                     return Problem(
@@ -190,12 +215,12 @@ public static class UploadEndpoint
                 }
             }
 
-            session = await uploads.StartAsync(preflight, httpContext.RequestAborted, uploadId);
+            session = await uploads.StartAsync(preflight, httpContext.RequestAborted, uploadId, authorUserId);
             taskId = session.TaskId;
 
             if (userCancellation is null)
             {
-                userCancellation = cancellationRegistry.Register(taskId);
+                userCancellation = cancellationRegistry.Register(taskId, authorUserId);
                 registeredCancellationId = taskId;
             }
 
@@ -298,6 +323,19 @@ public static class UploadEndpoint
         {
             await AbortAsync(session, UploadAbortReason.ClientDisconnected, FileTaskErrorCodes.UploadAborted);
             return Results.Empty;
+        }
+        catch (FileTaskAccessRevokedException)
+        {
+            // Права автора отозваны до публикации: временный файл удалён,
+            // конечное имя свободно, задача завершена как failed/access_denied.
+            await AbortAsync(session, UploadAbortReason.AccessRevoked, FileTaskErrorCodes.AccessDenied);
+            return Problem(
+                StatusCodes.Status403Forbidden,
+                "access_denied",
+                "Error_AccessDenied_Title",
+                "Error_AccessDenied_Detail",
+                httpContext,
+                localizer);
         }
         catch (Exception exception)
         {

@@ -20,7 +20,9 @@
     <form id="antiforgery-token" hidden aria-hidden="true">
         <AntiforgeryToken />
     </form>
-    <Routes />
+    <CascadingAuthenticationState>
+        <Routes />
+    </CascadingAuthenticationState>
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>

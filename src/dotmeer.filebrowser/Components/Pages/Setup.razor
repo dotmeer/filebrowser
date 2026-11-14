@@ -1,0 +1,44 @@
+@page "/setup"
+@attribute [AllowAnonymous]
+@inject IStringLocalizer<SharedResources> L
+
+<PageTitle>@L["Auth_Setup_Title"]</PageTitle>
+
+<section class="auth-page">
+    <h1>@L["Auth_Setup_Title"]</h1>
+    <p class="auth-description">@L["Auth_Setup_Description"]</p>
+
+    @if (ErrorMessage is not null)
+    {
+        <p class="dialog-error" role="alert">@ErrorMessage</p>
+    }
+
+    <form class="auth-form" method="post" action="/auth/setup">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+
+        <label for="setup-password">@L["Auth_Password"]</label>
+        <input id="setup-password" name="password" type="password" class="form-control" autocomplete="new-password" required autofocus />
+
+        <label for="setup-confirmation">@L["Auth_PasswordConfirm"]</label>
+        <input id="setup-confirmation" name="confirmPassword" type="password" class="form-control" autocomplete="new-password" required />
+
+        <button class="btn btn-primary" type="submit">@L["Auth_CreateAdmin"]</button>
+    </form>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    private string? ErrorMessage => Error switch
+    {
+        "password_required" => L["Auth_Error_PasswordRequired"].Value,
+        "password_mismatch" => L["Auth_Error_PasswordMismatch"].Value,
+        "antiforgery" => L["Auth_Error_Antiforgery"].Value,
+        _ => null
+    };
+}
