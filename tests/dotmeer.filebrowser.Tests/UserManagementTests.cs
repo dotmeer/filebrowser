@@ -23,6 +23,37 @@ public sealed class UserManagementTests
     private const string AdminPassword = "Admin-Pass-1!";
 
     [Fact]
+    public async Task BrowsePage_RegularUserWithoutRoot_ListsOnlyAccessibleRoots()
+    {
+        using var workspace = new TestWorkspace();
+        var hiddenRoot = Path.Combine(workspace.ConfigDirectory, "hidden-root");
+        Directory.CreateDirectory(hiddenRoot);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "inside-first-root.txt"), "test");
+        var configPath = workspace.WriteRawConfiguration(
+            $"roots:\n  - name: files\n    path: '{workspace.RootPath}'\n  - name: hidden\n    path: '{hiddenRoot}'\n");
+        using var host = await CreateConfiguredHostAsync(workspace, configPath);
+        var userId = await host.Services.GetRequiredService<UserStore>()
+            .CreateUserAsync("reader", "Reader-Pass-1!", mustChangePassword: false, CancellationToken.None);
+        var permissions = host.Services.GetRequiredService<RootPermissionStore>();
+        await permissions.SetAllAsync(userId, new Dictionary<string, RootAccess>
+        {
+            ["files"] = RootAccess.Read
+        }, CancellationToken.None);
+        using var client = host.CreateClient(allowAutoRedirect: false);
+        await LoginAsync(client, "reader", "Reader-Pass-1!");
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync("/"));
+        Assert.Contains(">AllRoots<", html);
+        Assert.Contains("📁</span> files", html);
+        Assert.DoesNotContain("📁</span> hidden", html);
+        Assert.DoesNotContain("inside-first-root.txt", html);
+
+        await permissions.SetAllAsync(userId, new Dictionary<string, RootAccess>(), CancellationToken.None);
+        html = WebUtility.HtmlDecode(await client.GetStringAsync("/"));
+        Assert.Contains("No accessible roots.", html);
+    }
+
+    [Fact]
     public async Task SetAllRights_UpdatesConfiguredRootsAndPreservesTemporarilyMissingRoots()
     {
         using var workspace = new TestWorkspace();
@@ -508,10 +539,10 @@ public sealed class UserManagementTests
         Assert.Contains("Current language", regularHtml);
     }
 
-    private static async Task<TestHostFactory.TestHost> CreateConfiguredHostAsync(TestWorkspace workspace)
+    private static async Task<TestHostFactory.TestHost> CreateConfiguredHostAsync(TestWorkspace workspace, string? configPath = null)
     {
         var host = TestHostFactory.Create(
-            workspace.WriteConfiguration(workspace.RootPath),
+            configPath ?? workspace.WriteConfiguration(workspace.RootPath),
             settings: new Dictionary<string, string?> { [AuthModeReader.SettingName] = "LOCAL" });
         try
         {

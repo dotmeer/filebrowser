@@ -9,20 +9,52 @@ namespace dotmeer.filebrowser.Tests;
 public sealed class VirtualRootUiTests
 {
     [Fact]
+    public async Task BrowsePage_AnonymousWithoutRoot_ListsAllRoots()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "first-root-only.txt"), "test");
+        using var host = CreateHost(workspace);
+
+        var html = WebUtility.HtmlDecode(await host.Client.GetStringAsync("/"));
+
+        Assert.Contains("📁</span> alpha", html);
+        Assert.Contains("📁</span> beta", html);
+        Assert.Contains("unsupported-entry", html);
+        Assert.Contains(">AllRoots<", html);
+        Assert.DoesNotContain("first-root-only.txt", html);
+        Assert.Contains("The virtual root is read-only.", html);
+    }
+
+    [Fact]
+    public async Task BrowsePage_AnonymousExplicitRoot_StillOpensRequestedFolder()
+    {
+        using var workspace = new TestWorkspace();
+        Directory.CreateDirectory(Path.Combine(workspace.RootPath, "sub"));
+        File.WriteAllText(Path.Combine(workspace.RootPath, "sub", "note.txt"), "test");
+        using var host = CreateHost(workspace);
+
+        var html = await host.Client.GetStringAsync("/?root=alpha&path=sub");
+
+        Assert.Contains("note.txt", html);
+        Assert.DoesNotContain("The virtual root is read-only.", html);
+    }
+
+    [Fact]
     public async Task BrowsePage_TreeContainsOnlyAllRootsNodeAtTopLevel()
     {
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
         var html = await host.Client.GetStringAsync("/");
+        var sidebar = html[..html.IndexOf("</aside>", StringComparison.Ordinal)];
 
         // Единственный узел верхнего уровня — «Все корни»; настроенные
         // корни не дублируются отдельными узлами: их узлы
         // рендерятся лениво как дети свёрнутого узла «Все корни».
-        Assert.Contains("title=\"All roots\"", html);
-        Assert.DoesNotContain("title=\"alpha\"", html);
-        Assert.DoesNotContain("title=\"beta\"", html);
-        Assert.DoesNotContain("title=\"offline\"", html);
+        Assert.Contains("title=\"All roots\"", sidebar);
+        Assert.DoesNotContain("title=\"alpha\"", sidebar);
+        Assert.DoesNotContain("title=\"beta\"", sidebar);
+        Assert.DoesNotContain("title=\"offline\"", sidebar);
     }
 
     [Fact]

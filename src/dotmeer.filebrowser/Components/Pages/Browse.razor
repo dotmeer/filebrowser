@@ -641,7 +641,9 @@
             }
             _rootsLoading = false;
 
-            var root = RootQuery ?? _roots.FirstOrDefault()?.Name;
+            var root = RootQuery ?? (string.IsNullOrEmpty(PathQuery) && _roots.Count > 0
+                ? VirtualRoot.VirtualRootName
+                : _roots.FirstOrDefault()?.Name);
             if (string.IsNullOrWhiteSpace(root))
             {
                 _error = L["Нет доступных корней."];

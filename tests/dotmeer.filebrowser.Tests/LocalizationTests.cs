@@ -83,7 +83,7 @@ public sealed class LocalizationTests
         using var workspace = new TestWorkspace();
         using var host = CreateHost(workspace);
 
-        var html = await host.Client.GetStringAsync("/");
+        var html = await host.Client.GetStringAsync("/?root=files");
 
         Assert.Contains(">Tasks</h2>", html);
         Assert.Contains("Active tasks (0)", WebUtility.HtmlDecode(html));
