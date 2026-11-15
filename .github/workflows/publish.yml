@@ -2,16 +2,13 @@ name: Build and publish
 
 on:
   push:
-    branches: ['**']
     tags: ['v*']
-  pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: filebrowser-${{ github.ref_type == 'tag' && 'release' || github.ref }}
+  group: filebrowser-release
   cancel-in-progress: false
 
 jobs:
