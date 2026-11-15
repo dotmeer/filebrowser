@@ -58,6 +58,7 @@ public sealed class FileSystemReadService
             {
                 FileSystemEntryKind.Directory => "directory",
                 FileSystemEntryKind.RegularFile => "file",
+                FileSystemEntryKind.Symlink => "symlink",
                 _ => "unsupported"
             };
             var relativePath = string.IsNullOrEmpty(resolved.RelativePath)

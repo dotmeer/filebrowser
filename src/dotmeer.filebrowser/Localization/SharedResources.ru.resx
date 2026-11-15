@@ -54,6 +54,10 @@
   <data name="Переместить" xml:space="preserve"><value>Переместить</value></data>
   <data name="Скачать" xml:space="preserve"><value>Скачать</value></data>
   <data name="Подготовка архива…" xml:space="preserve"><value>Подготовка архива…</value></data>
+  <data name="Обнаружено символических ссылок: {0}. Скачать без ссылок?" xml:space="preserve"><value>Обнаружено символических ссылок: {0}. Скачать без ссылок?</value></data>
+  <data name="Состав ссылок изменился. Повторите скачивание и подтвердите новый список." xml:space="preserve"><value>Состав ссылок изменился. Повторите скачивание и подтвердите новый список.</value></data>
+  <data name="Error_ArchiveSelectionChanged_Title" xml:space="preserve"><value>Состав архива изменился</value></data>
+  <data name="Error_ArchiveSelectionChanged_Detail" xml:space="preserve"><value>Состав символических ссылок изменился после подтверждения. Повторите скачивание.</value></data>
   <data name="Нельзя скачать все корни одним архивом" xml:space="preserve"><value>Нельзя скачать все корни одним архивом</value></data>
   <data name="Набор слишком большой для скачивания одним архивом." xml:space="preserve"><value>Набор слишком большой для скачивания одним архивом.</value></data>
   <data name="Не удалось проверить выбранные объекты за отведённое время." xml:space="preserve"><value>Не удалось проверить выбранные объекты за отведённое время.</value></data>

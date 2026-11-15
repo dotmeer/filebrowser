@@ -272,7 +272,7 @@
                                 <tr @key="entry.Path" class="@GetRowHighlightClass(entry)" @oncontextmenu:preventDefault @oncontextmenu="args => OpenContextMenu(entry, args)">
                                     <td>
                                         <input class="form-check-input" type="checkbox" aria-label="@L["Выбрать {0}", entry.Name]"
-                                               checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind == "unsupported")"
+                                               checked="@_selection.Contains(entry.Path)" disabled="@(entry.Kind is "unsupported" or "symlink")"
                                                @onchange="args => ToggleSelection(entry.Path, args.Value is true)" />
                                     </td>
                                     <td class="file-name" title="@entry.Name">
@@ -287,6 +287,12 @@
                                         {
                                             <span class="unsupported-entry" title="@L["Этот объект нельзя открыть"]">
                                                 <span aria-hidden="true">⚠</span> @entry.Name
+                                            </span>
+                                        }
+                                        else if (entry.Kind == "symlink")
+                                        {
+                                            <span class="unsupported-entry" title="@L["Символическая ссылка"]">
+                                                <span aria-hidden="true">↗</span> @entry.Name <span class="visually-hidden">@L["Символическая ссылка"]</span>
                                             </span>
                                         }
                                         else
@@ -468,7 +474,8 @@
     private IReadOnlyList<FileEntryDto> SelectedEntries =>
         _listing is null
             ? []
-            : _listing.Entries.Where(entry => _selection.Contains(entry.Path)).ToArray();
+            : _listing.Entries.Where(entry => entry.Kind is not ("unsupported" or "symlink")
+                && _selection.Contains(entry.Path)).ToArray();
 
     private FileEntryDto? SelectedEntry =>
         SelectedEntries is [var entry] ? entry : null;
@@ -886,7 +893,7 @@
 
     private void OpenContextMenu(FileEntryDto entry, MouseEventArgs args)
     {
-        if (IsSearchActive || IsVirtualRootTopLevel || entry.Kind == "unsupported")
+        if (IsSearchActive || IsVirtualRootTopLevel || entry.Kind is "unsupported" or "symlink")
         {
             return;
         }
@@ -1066,8 +1073,20 @@
         try
         {
             var actor = await Access.GetFileActorAsync();
-            await Task.Run(() => ArchiveService.Plan(new FileRef(root, basePath), names, CancellationToken.None, actor));
-            var ticket = ArchiveTickets.Create(new ArchiveSelection(root, basePath, names, actor.UserId));
+            var plan = await Task.Run(() => ArchiveService.Plan(new FileRef(root, basePath), names, CancellationToken.None, actor));
+            if (plan.SkippedSymlinkCount > 0)
+            {
+                var confirmed = await JavaScript.InvokeAsync<bool>(
+                    "confirm",
+                    L["Обнаружено символических ссылок: {0}. Скачать без ссылок?", plan.SkippedSymlinkCount].Value);
+                if (!confirmed)
+                {
+                    _archiveStatus = null;
+                    return;
+                }
+            }
+
+            var ticket = ArchiveTickets.Create(new ArchiveSelection(root, basePath, names, actor.UserId, plan.SkippedSymlinkPaths));
             _archiveStatus = null;
             Navigation.NavigateTo($"/api/fs/zip?ticket={Uri.EscapeDataString(ticket)}", forceLoad: true);
         }
@@ -1232,6 +1251,7 @@
     {
         "directory" => L["Папка"],
         "file" => L["Файл"],
+        "symlink" => L["Символическая ссылка"],
         _ => L["Не поддерживается"]
     };
 
@@ -1304,6 +1324,7 @@
 
     private string GetSafeArchiveError(Exception exception) => exception switch
     {
+        ArchiveSelectionChangedException => L["Состав ссылок изменился. Повторите скачивание и подтвердите новый список."],
         ArchiveLimitExceededException => L["Набор слишком большой для скачивания одним архивом."],
         ArchiveScanTimeoutException => L["Не удалось проверить выбранные объекты за отведённое время."],
         ArchiveBusyException => L["Сейчас формируются другие архивы. Повторите попытку позже."],

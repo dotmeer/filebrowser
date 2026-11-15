@@ -368,6 +368,10 @@ public sealed class TaskManagementTests
             Assert.Equal("Move failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Move));
             Assert.Equal("Upload failed.", presentation.ErrorText(FileTaskErrorCodes.IoError, FileTaskType.Upload));
             Assert.Equal("Name conflict: an object with the same name already exists.", presentation.ErrorText(FileTaskErrorCodes.NameConflict, FileTaskType.Move));
+            Assert.Equal("Symbolic link inside the selected object: folder/link.txt.",
+                presentation.ErrorText("symlink_path:folder/link.txt", FileTaskType.Copy));
+            Assert.Equal("An unsupported object or symbolic link was found.",
+                presentation.ErrorText(FileTaskErrorCodes.UnsupportedOrSymlink, FileTaskType.Copy));
             Assert.Equal("The task was cancelled by the user.", presentation.ErrorText(FileTaskErrorCodes.CancelledByUser, FileTaskType.Copy));
             Assert.Equal("Not processed: the task was cancelled.", presentation.ErrorText(FileTaskErrorCodes.SkippedAfterCancel, FileTaskType.Move));
             Assert.Equal("Upload interrupted: the connection was lost.", presentation.ErrorText(FileTaskErrorCodes.UploadAborted, FileTaskType.Upload));

@@ -5,7 +5,8 @@ internal static class FileSystemTreeWalker
     public static IEnumerable<FileSystemTreeNode> EnumerateValidated(
         string rootPath,
         CancellationToken cancellationToken = default,
-        Func<string, bool>? shouldDescend = null)
+        Func<string, bool>? shouldDescend = null,
+        Action<string>? onSymlink = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
 
@@ -17,6 +18,30 @@ internal static class FileSystemTreeWalker
             while (hasCurrent)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (PathInspection.TryClassify(currentPath, out var kind)
+                    && kind == FileSystemEntryKind.Symlink
+                    && onSymlink is not null)
+                {
+                    onSymlink(currentPath);
+                    hasCurrent = false;
+                    while (enumerators.Count > 0 && !hasCurrent)
+                    {
+                        var enumerator = enumerators.Peek();
+                        if (enumerator.MoveNext())
+                        {
+                            currentPath = enumerator.Current;
+                            hasCurrent = true;
+                        }
+                        else
+                        {
+                            enumerator.Dispose();
+                            enumerators.Pop();
+                        }
+                    }
+
+                    continue;
+                }
+
                 PathInspection.ThrowIfUnsupported(currentPath);
                 var isDirectory = Directory.Exists(currentPath);
                 yield return new FileSystemTreeNode(currentPath, isDirectory);

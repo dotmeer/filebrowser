@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using dotmeer.filebrowser.Configuration;
 using dotmeer.filebrowser.FileSystem;
 
@@ -41,10 +42,10 @@ public sealed class FileSystemReadServiceTests
     }
 
     [Fact]
-    public void List_ReportsUnsupportedSymlinkWithoutFollowingIt()
+    public async Task List_ReportsSymbolicLinkWithoutFollowingIt()
     {
         using var workspace = new TestWorkspace();
-        var target = Path.Combine(workspace.RootPath, "target");
+        var target = Path.Combine(workspace.ConfigDirectory, "private-link-destination");
         Directory.CreateDirectory(target);
         var link = Path.Combine(workspace.RootPath, "link");
         try
@@ -59,8 +60,57 @@ public sealed class FileSystemReadServiceTests
         var reader = CreateReader(workspace);
 
         var linkEntry = Assert.Single(reader.List(new FileRef("files", string.Empty)).Entries, entry => entry.Name == "link");
-        Assert.Equal("unsupported", linkEntry.Kind);
+        Assert.Equal("symlink", linkEntry.Kind);
         Assert.Equal("link", linkEntry.Path);
+
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var response = await host.Client.GetAsync("/?root=files");
+        var html = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("class=\"unsupported-entry\" title=\"Symbolic link\"", html);
+        Assert.Matches("aria-label=\"Select link\"[^>]*disabled", html);
+        Assert.DoesNotContain("private-link-destination", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void List_ReportsWindowsJunctionAsGenericUnsupported()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var workspace = new TestWorkspace();
+        var target = Path.Combine(workspace.ConfigDirectory, "junction-target");
+        Directory.CreateDirectory(target);
+        var junction = Path.Combine(workspace.RootPath, "junction");
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            ArgumentList = { "/c", "mklink", "/J", junction, target }
+        });
+        process?.WaitForExit();
+        if (process?.ExitCode != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var entry = Assert.Single(CreateReader(workspace).List(new FileRef("files", string.Empty)).Entries,
+                item => item.Name == "junction");
+            Assert.Equal("unsupported", entry.Kind);
+            Assert.Null(entry.Size);
+            Assert.Equal("junction", entry.Path);
+        }
+        finally
+        {
+            if (Directory.Exists(junction))
+            {
+                Directory.Delete(junction, recursive: false);
+            }
+        }
     }
 
     private static FileSystemReadService CreateReader(TestWorkspace workspace, string? rawConfiguration = null)

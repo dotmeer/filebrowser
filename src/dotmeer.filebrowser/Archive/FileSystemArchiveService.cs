@@ -11,8 +11,8 @@ namespace dotmeer.filebrowser.Archive;
 /// (SPEC §12.2). Модель двухфазная, как у copy/move (§10.5):
 /// <see cref="Plan"/> выполняет полный обход без чтения данных и собирает
 /// ошибки, <see cref="WriteAsync"/> пишет архив в поток без промежуточного
-/// файла. Записи сохраняются без сжатия; symlink и специальные объекты —
-/// отказ всего запроса.
+/// файла. Записи сохраняются без сжатия; ссылки можно пропустить только
+/// после явного подтверждения вызывающей стороны.
 /// </summary>
 public sealed class FileSystemArchiveService
 {
@@ -117,6 +117,7 @@ public sealed class FileSystemArchiveService
 
         var startedAt = _timeProvider.GetTimestamp();
         var entries = new List<ArchiveEntry>();
+        var skippedSymlinkPaths = new List<string>();
         long totalBytes = 0;
 
         try
@@ -127,7 +128,19 @@ public sealed class FileSystemArchiveService
                 foreach (var node in FileSystemTreeWalker.EnumerateValidated(
                              item.PhysicalPath,
                              cancellationToken,
-                             ShouldDescend))
+                             ShouldDescend,
+                             path =>
+                             {
+                                 EnsurePreflightBudget(startedAt, cancellationToken);
+                                 var linkEntryName = BuildEntryName(item, path);
+                                 ValidateEntryName(linkEntryName);
+                                 skippedSymlinkPaths.Add(linkEntryName);
+                                 if (entries.Count + skippedSymlinkPaths.Count > ArchiveLimits.MaxEntries)
+                                 {
+                                     throw new ArchiveLimitExceededException(
+                                         "Число объектов превышает допустимое для одного архива.");
+                                 }
+                             }))
                 {
                     EnsurePreflightBudget(startedAt, cancellationToken);
 
@@ -168,7 +181,7 @@ public sealed class FileSystemArchiveService
                         totalBytes += info.Length;
                     }
 
-                    if (entries.Count > ArchiveLimits.MaxEntries)
+                    if (entries.Count + skippedSymlinkPaths.Count > ArchiveLimits.MaxEntries)
                     {
                         throw new ArchiveLimitExceededException(
                             "Число объектов превышает допустимое для одного архива.");
@@ -204,7 +217,8 @@ public sealed class FileSystemArchiveService
         // его имя является префиксом имени потомка.
         entries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
 
-        return new ArchivePlan(BuildArchiveName(resolvedBase), entries, totalBytes);
+        skippedSymlinkPaths.Sort(StringComparer.Ordinal);
+        return new ArchivePlan(BuildArchiveName(resolvedBase), entries, totalBytes, skippedSymlinkPaths);
     }
 
     /// <summary>

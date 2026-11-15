@@ -113,6 +113,30 @@ public sealed class ArchivePlanTests
     }
 
     [Fact]
+    public async Task Plan_SkipsSymlinkWithoutFollowingAndReportsCount_ButRejectsDirectSelection()
+    {
+        using var workspace = new TestWorkspace();
+        var outside = Path.Combine(workspace.RootPath, "target.txt");
+        File.WriteAllText(outside, "secret");
+        File.WriteAllText(Path.Combine(workspace.RootPath, "ok.txt"), "ok");
+        var link = Path.Combine(workspace.RootPath, "link.txt");
+        try { File.CreateSymbolicLink(link, outside); }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException) { return; }
+
+        var service = CreateService(workspace);
+        var plan = service.Plan(new FileRef("files", string.Empty), [], CancellationToken.None);
+        Assert.Equal(1, plan.SkippedSymlinkCount);
+        Assert.Equal(new[] { "link.txt" }, plan.SkippedSymlinkPaths);
+        Assert.Equal(new[] { "ok.txt", "target.txt" }, plan.Entries.Select(entry => entry.Name));
+        using var output = new MemoryStream();
+        await service.WriteAsync(plan, output, CancellationToken.None);
+        using var archive = new ZipArchive(new MemoryStream(output.ToArray()), ZipArchiveMode.Read);
+        Assert.Equal(new[] { "ok.txt", "target.txt" }, archive.Entries.Select(entry => entry.FullName));
+        Assert.Throws<UnsupportedFileSystemObjectException>(
+            () => service.Plan(new FileRef("files", string.Empty), ["link.txt"], CancellationToken.None));
+    }
+
+    [Fact]
     public void Plan_RejectsVirtualRootTopLevel()
     {
         using var workspace = new TestWorkspace();
@@ -211,7 +235,7 @@ public sealed class ArchivePlanTests
     }
 
     [Fact]
-    public void Plan_RejectsSymlinkInsideTree()
+    public void Plan_SkipsSymlinkInsideTreeAndReportsIt()
     {
         using var workspace = new TestWorkspace();
         var target = Path.Combine(workspace.RootPath, "target.txt");
@@ -228,8 +252,9 @@ public sealed class ArchivePlanTests
 
         var service = CreateService(workspace);
 
-        Assert.Throws<UnsupportedFileSystemObjectException>(
-            () => service.Plan(new FileRef("files", string.Empty), [], CancellationToken.None));
+        var plan = service.Plan(new FileRef("files", string.Empty), [], CancellationToken.None);
+        Assert.Equal(new[] { "link.txt" }, plan.SkippedSymlinkPaths);
+        Assert.Equal(new[] { "target.txt" }, plan.Entries.Select(entry => entry.Name));
     }
 
     [Fact]

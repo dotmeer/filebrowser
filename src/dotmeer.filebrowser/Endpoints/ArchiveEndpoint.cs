@@ -92,6 +92,11 @@ public static class ArchiveEndpoint
             plan = await Task.Run(
                 () => archiveService.Plan(selection.ToFileRef(), selection.Names, httpContext.RequestAborted, actor),
                 httpContext.RequestAborted);
+            var confirmedLinks = selection.ConfirmedSkippedSymlinkPaths ?? [];
+            if (!plan.SkippedSymlinkPaths!.SequenceEqual(confirmedLinks, StringComparer.Ordinal))
+            {
+                throw new ArchiveSelectionChangedException();
+            }
         }
         catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)
         {

@@ -200,7 +200,7 @@ public sealed class DeleteTaskExecutorTests
         Assert.True(Directory.Exists(album));
         Assert.True(File.Exists(target));
         var failed = await repository.GetAsync(task.Id);
-        Assert.Equal(FileTaskErrorCodes.UnsupportedOrSymlink, Assert.Single(failed!.Items).Error);
+        Assert.Equal("symlink_path:album/link.txt", Assert.Single(failed!.Items).Error);
     }
 
     [Fact]

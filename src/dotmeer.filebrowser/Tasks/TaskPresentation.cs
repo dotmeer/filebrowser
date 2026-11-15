@@ -156,6 +156,8 @@ public sealed class TaskPresentation(IStringLocalizer<SharedResources> localizer
         FileTaskErrorCodes.ServiceFileProtected => localizer["В выбранном дереве находятся служебные файлы приложения."],
         FileTaskErrorCodes.ArtifactInUse => localizer["В выбранном дереве есть временные объекты активных задач."],
         FileTaskErrorCodes.DeleteIncomplete => localizer["Объект скрыт, но не удалён полностью. Место освободится при перезапуске приложения."],
+        _ when error.StartsWith(FileTaskErrorCodes.SymlinkPathPrefix, StringComparison.Ordinal) =>
+            localizer["Символическая ссылка внутри выбранного объекта: {0}", error[FileTaskErrorCodes.SymlinkPathPrefix.Length..]],
         _ => error
     };
 

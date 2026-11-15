@@ -32,6 +32,7 @@ public static class FileSystemProblemMapper
             ArchiveLimitExceededException => (StatusCodes.Status400BadRequest, "archive_too_large", "Error_ArchiveTooLarge_Title", "Error_ArchiveTooLarge_Detail"),
             ArchiveBusyException => (StatusCodes.Status429TooManyRequests, "archive_busy", "Error_ArchiveBusy_Title", "Error_ArchiveBusy_Detail"),
             ArchiveScanTimeoutException => (StatusCodes.Status503ServiceUnavailable, "scan_timeout", "Error_ScanTimeout_Title", "Error_ScanTimeout_Detail"),
+            ArchiveSelectionChangedException => (StatusCodes.Status409Conflict, "archive_selection_changed", "Error_ArchiveSelectionChanged_Title", "Error_ArchiveSelectionChanged_Detail"),
             FileTooLargeException => (StatusCodes.Status413PayloadTooLarge, "file_too_large", "Error_FileTooLarge_Title", "Error_FileTooLarge_Detail"),
             InsufficientSpaceException => (StatusCodes.Status507InsufficientStorage, "insufficient_space", "Error_InsufficientSpace_Title", "Error_InsufficientSpace_Detail"),
             UploadIncompleteException => (StatusCodes.Status400BadRequest, "upload_incomplete", "Error_UploadIncomplete_Title", "Error_UploadIncomplete_Detail"),

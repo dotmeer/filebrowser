@@ -38,9 +38,10 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         var candidates = new List<FileTransferPlanEntry>();
         foreach (var source in task.Sources)
         {
+            ResolvedPath? resolved = null;
             try
             {
-                var resolved = pathResolver.ResolveExisting(source);
+                resolved = pathResolver.ResolveExisting(source);
                 access.EnsureMutableBranch(resolved.Root, resolved.PhysicalPath);
                 if (string.IsNullOrEmpty(resolved.RelativePath))
                 {
@@ -56,9 +57,9 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
             {
                 errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.SourceAccessDenied));
             }
-            catch (UnsupportedFileSystemObjectException)
+            catch (UnsupportedFileSystemObjectException exception)
             {
-                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.UnsupportedOrSymlink));
+                errors.Add(new FileTransferPlanError(source, FileTaskErrorCodes.FromUnsupportedSource(resolved, exception)));
             }
             catch (FileSystemResolutionException)
             {
@@ -419,6 +420,7 @@ public class FileTransferEngine(PathResolver pathResolver, TaskRepository reposi
         && first.RelativePath.Equals(second.RelativePath, StringComparison.Ordinal);
 
     private sealed record ScanResult(long Bytes, long Items);
+
 
     private sealed class FileRefComparer : IEqualityComparer<FileRef>
     {

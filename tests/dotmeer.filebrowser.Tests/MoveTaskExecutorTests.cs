@@ -13,6 +13,43 @@ namespace dotmeer.filebrowser.Tests;
 public sealed class MoveTaskExecutorTests
 {
     [Fact]
+    public async Task Execute_RejectsWholeBatchWhenSourceContainsSymlink()
+    {
+        using var workspace = new TestWorkspace();
+        var destinationRoot = CreateDestinationRoot(workspace);
+        var inbox = Path.Combine(destinationRoot, "inbox");
+        Directory.CreateDirectory(inbox);
+        var album = Directory.CreateDirectory(Path.Combine(workspace.RootPath, "album")).FullName;
+        var sibling = Path.Combine(workspace.RootPath, "sibling.txt");
+        File.WriteAllText(sibling, "keep");
+        var link = Path.Combine(album, "link.txt");
+        try
+        {
+            File.CreateSymbolicLink(link, sibling);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var (repository, resolver) = CreateRepositoryAndResolver(workspace, destinationRoot);
+        var executor = new MoveTaskExecutor(new FileTransferEngine(resolver, repository, new TaskProgressService()));
+        var task = await CreateScanningTaskAsync(repository,
+            [new FileRef("source", "album"), new FileRef("source", "sibling.txt")],
+            new FileRef("destination", "inbox"));
+
+        var failure = await Assert.ThrowsAsync<FileTaskExecutionException>(
+            () => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
+
+        Assert.Equal(FileTaskErrorCodes.PreflightFailed, failure.SafeCode);
+        var scanned = await repository.GetAsync(task.Id);
+        Assert.Contains(scanned!.Items, item => item.Source.Path == "album" && item.Error == "symlink_path:album/link.txt");
+        Assert.Equal("keep", File.ReadAllText(sibling));
+        Assert.NotNull(new FileInfo(link).LinkTarget);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(inbox));
+    }
+
+    [Fact]
     public async Task Execute_MovesFileAndDirectoryWithinSameFileSystem()
     {
         using var workspace = new TestWorkspace();

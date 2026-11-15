@@ -1,3 +1,5 @@
+using dotmeer.filebrowser.FileSystem;
+
 namespace dotmeer.filebrowser.Tasks;
 
 /// <summary>
@@ -12,6 +14,7 @@ public static class FileTaskErrorCodes
     public const string DestinationUnavailable = "destination_unavailable";
     public const string RootAsSource = "root_as_source";
     public const string UnsupportedOrSymlink = "unsupported_or_symlink";
+    public const string SymlinkPathPrefix = "symlink_path:";
     public const string SourceUnavailable = "source_unavailable";
     public const string SourceUnreadable = "source_unreadable";
     public const string SourceAccessDenied = "source_access_denied";
@@ -40,4 +43,21 @@ public static class FileTaskErrorCodes
     public const string UploadAborted = "upload_aborted";
     public const string UploadIncomplete = "upload_incomplete";
     public const string FileTooLarge = "file_too_large";
+
+    internal static string FromUnsupportedSource(ResolvedPath? source, UnsupportedFileSystemObjectException exception)
+    {
+        if (source is null || exception.SymlinkPath is not { } linkPath
+            || !PathInspection.IsWithin(source.PhysicalPath, linkPath))
+        {
+            return UnsupportedOrSymlink;
+        }
+
+        var relative = Path.GetRelativePath(source.PhysicalPath, linkPath).Replace(Path.DirectorySeparatorChar, '/');
+        if (relative == "." || relative.Split('/').Any(PathResolver.IsReservedTemporaryArtifactName))
+        {
+            return UnsupportedOrSymlink;
+        }
+
+        return $"{SymlinkPathPrefix}{source.RelativePath}/{relative}";
+    }
 }

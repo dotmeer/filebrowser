@@ -254,8 +254,15 @@ public sealed class InvalidFileSystemRequestException : FileSystemResolutionExce
 
 public sealed class UnsupportedFileSystemObjectException : FileSystemResolutionException
 {
+    internal string? SymlinkPath { get; }
+
     public UnsupportedFileSystemObjectException(string message) : base(message)
     {
+    }
+
+    internal UnsupportedFileSystemObjectException(string message, string symlinkPath) : base(message)
+    {
+        SymlinkPath = symlinkPath;
     }
 
     public UnsupportedFileSystemObjectException(string message, Exception innerException) : base(message, innerException)

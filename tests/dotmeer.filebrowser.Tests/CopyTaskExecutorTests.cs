@@ -165,6 +165,7 @@ public sealed class CopyTaskExecutorTests
         var destinationRoot = CreateDestinationRoot(workspace);
         var sourceDirectory = Path.Combine(workspace.RootPath, "source-directory");
         Directory.CreateDirectory(sourceDirectory);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "sibling.txt"), "keep");
         var target = Path.Combine(workspace.RootPath, "target.txt");
         File.WriteAllText(target, "content");
         try
@@ -178,14 +179,16 @@ public sealed class CopyTaskExecutorTests
 
         Directory.CreateDirectory(Path.Combine(destinationRoot, "inbox"));
         var (repository, executor) = CreateExecutor(workspace, destinationRoot);
-        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source-directory")], new FileRef("destination", "inbox"));
+        var task = await CreateScanningTaskAsync(repository, [new FileRef("source", "source-directory"), new FileRef("source", "sibling.txt")], new FileRef("destination", "inbox"));
 
         var exception = await Assert.ThrowsAsync<FileTaskExecutionException>(() => executor.ExecuteAsync(task, CancellationToken.None, CancellationToken.None));
 
         Assert.Equal(FileTaskErrorCodes.PreflightFailed, exception.SafeCode);
         var scanned = await repository.GetAsync(task.Id);
-        Assert.Equal(FileTaskErrorCodes.UnsupportedOrSymlink, Assert.Single(scanned!.Items).Error);
+        Assert.Equal("symlink_path:source-directory/link.txt", scanned!.Items.Single(item => item.Source.Path == "source-directory").Error);
+        Assert.Equal("failed", scanned.Items.Single(item => item.Source.Path == "sibling.txt").Status);
         Assert.False(Directory.Exists(Path.Combine(destinationRoot, "inbox", "source-directory")));
+        Assert.False(File.Exists(Path.Combine(destinationRoot, "inbox", "sibling.txt")));
     }
 
     [Fact]

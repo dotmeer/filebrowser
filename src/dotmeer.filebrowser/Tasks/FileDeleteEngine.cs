@@ -28,9 +28,10 @@ public class FileDeleteEngine(
 
         foreach (var source in task.Sources)
         {
+            ResolvedPath? resolved = null;
             try
             {
-                var resolved = pathResolver.ResolveExisting(source);
+                resolved = pathResolver.ResolveExisting(source);
                 access.EnsureMutableBranch(resolved.Root, resolved.PhysicalPath);
                 if (string.IsNullOrEmpty(resolved.RelativePath))
                 {
@@ -51,9 +52,9 @@ public class FileDeleteEngine(
             {
                 errors.Add(new FileDeletePlanError(source, FileTaskErrorCodes.SourceAccessDenied));
             }
-            catch (UnsupportedFileSystemObjectException)
+            catch (UnsupportedFileSystemObjectException exception)
             {
-                errors.Add(new FileDeletePlanError(source, FileTaskErrorCodes.UnsupportedOrSymlink));
+                errors.Add(new FileDeletePlanError(source, FileTaskErrorCodes.FromUnsupportedSource(resolved, exception)));
             }
             catch (FileSystemResolutionException)
             {
@@ -304,6 +305,7 @@ public class FileDeleteEngine(
         var separator = relativePath.LastIndexOf('/');
         return separator < 0 ? string.Empty : relativePath[..separator];
     }
+
 }
 
 internal sealed record FileDeletePlan(IReadOnlyList<FileDeletePlanEntry> Entries, List<FileDeletePlanError> Errors);

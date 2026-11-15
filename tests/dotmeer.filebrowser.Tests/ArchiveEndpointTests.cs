@@ -224,7 +224,7 @@ public sealed class ArchiveEndpointTests
     }
 
     [Fact]
-    public async Task Zip_WithSymlinkInsideTree_ReturnsUnsupportedObject()
+    public async Task Zip_WithConfirmedSymlinkInsideTree_SkipsLink()
     {
         using var workspace = new TestWorkspace();
         var target = Path.Combine(workspace.RootPath, "target.txt");
@@ -241,12 +241,47 @@ public sealed class ArchiveEndpointTests
 
         using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
 
-        var ticket = CreateTicket(host, "files", string.Empty, []);
+        var ticket = CreateTicket(host, "files", string.Empty, [], ["link.txt"]);
         using var response = await host.Client.GetAsync($"/api/fs/zip?ticket={ticket}");
-        var code = await ReadProblemCodeAsync(response);
+        var body = await response.Content.ReadAsByteArrayAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var archive = new ZipArchive(new MemoryStream(body), ZipArchiveMode.Read);
+        Assert.Equal(new[] { "target.txt" }, archive.Entries.Select(entry => entry.FullName));
+    }
 
+    [Fact]
+    public async Task Zip_WithDirectlySelectedSymlink_RemainsRejected()
+    {
+        using var workspace = new TestWorkspace();
+        var target = Path.Combine(workspace.RootPath, "target.txt");
+        File.WriteAllText(target, "alpha");
+        try { File.CreateSymbolicLink(Path.Combine(workspace.RootPath, "link.txt"), target); }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException) { return; }
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+
+        var ticket = CreateTicket(host, "files", string.Empty, ["link.txt"]);
+        using var response = await host.Client.GetAsync($"/api/fs/zip?ticket={ticket}");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("unsupported_object", code);
+        Assert.Equal("unsupported_object", await ReadProblemCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Zip_WhenSymlinkPathChangesAfterConfirmation_RejectsBeforeResponse()
+    {
+        using var workspace = new TestWorkspace();
+        File.WriteAllText(Path.Combine(workspace.RootPath, "target.txt"), "alpha");
+        using var host = TestHostFactory.Create(workspace.WriteConfiguration(workspace.RootPath));
+        var oldLink = Path.Combine(workspace.RootPath, "old-link.txt");
+        try { File.CreateSymbolicLink(oldLink, Path.Combine(workspace.RootPath, "target.txt")); }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException) { return; }
+        var ticket = CreateTicket(host, "files", string.Empty, [], ["old-link.txt"]);
+        File.Delete(oldLink);
+        try { File.CreateSymbolicLink(Path.Combine(workspace.RootPath, "new-link.txt"), Path.Combine(workspace.RootPath, "target.txt")); }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException) { return; }
+
+        using var response = await host.Client.GetAsync($"/api/fs/zip?ticket={ticket}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("archive_selection_changed", await ReadProblemCodeAsync(response));
     }
 
     [Fact]
@@ -267,10 +302,11 @@ public sealed class ArchiveEndpointTests
         TestHostFactory.TestHost host,
         string root,
         string path,
-        IReadOnlyList<string> names)
+        IReadOnlyList<string> names,
+        IReadOnlyList<string>? confirmedSkippedSymlinkPaths = null)
     {
         var store = host.Services.GetRequiredService<ArchiveTicketStore>();
-        return store.Create(new ArchiveSelection(root, path, names));
+        return store.Create(new ArchiveSelection(root, path, names, ConfirmedSkippedSymlinkPaths: confirmedSkippedSymlinkPaths));
     }
 
     private static async Task<string?> ReadProblemCodeAsync(HttpResponseMessage response)
