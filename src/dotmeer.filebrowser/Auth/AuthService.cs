@@ -175,7 +175,7 @@ public sealed class AuthService
     /// cookie. В LOCAL источник истины — SQLite: отозванная/истёкшая сессия
     /// считается анонимной, временный пароль ограничивает доступ, действующая
     /// учётная запись (admin или обычная) получает рабочий UI. Файловые права
-    /// обычной учётки проверяются отдельно по корням (§8.5).
+    /// обычной учётки проверяются отдельно по корням.
     /// </summary>
     public async Task<AccessLevel> EvaluateAsync(ClaimsPrincipal principal, CancellationToken cancellationToken)
     {

@@ -17,7 +17,7 @@ public sealed class VirtualRootUiTests
         var html = await host.Client.GetStringAsync("/");
 
         // Единственный узел верхнего уровня — «Все корни»; настроенные
-        // корни не дублируются отдельными узлами (SPEC §9.1): их узлы
+        // корни не дублируются отдельными узлами: их узлы
         // рендерятся лениво как дети свёрнутого узла «Все корни».
         Assert.Contains("title=\"All roots\"", html);
         Assert.DoesNotContain("title=\"alpha\"", html);
@@ -124,7 +124,7 @@ public sealed class VirtualRootUiTests
         Assert.Contains("hit-a.txt", html);
         Assert.Contains("hit-b.txt", html);
         // Подзаголовки начинаются с имени реального корня — совпадения
-        // из разных корней различимы (SPEC §9.7).
+        // из разных корней различимы.
         Assert.Contains(">/alpha</span>", html);
         Assert.Contains(">/beta</span>", html);
         // Полный путь с префиксом реального корня — в tooltip ячейки (I22-3).

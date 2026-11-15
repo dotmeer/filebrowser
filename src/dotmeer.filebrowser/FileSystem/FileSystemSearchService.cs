@@ -293,8 +293,8 @@ public sealed record SearchResultDto(
     IReadOnlyList<FileEntryDto> Results)
 {
     /// <summary>
-    /// Недоступные реальные корня, пропущенные при поиске по виртуальному корню
-    /// (SPEC §10.6). Для поиска по реальному корню — пустой массив.
+    /// Недоступные реальные корня, пропущенные при поиске по виртуальному корню.
+    /// Для поиска по реальному корню — пустой массив.
     /// </summary>
     public IReadOnlyList<string> UnavailableRoots { get; init; } = [];
 }

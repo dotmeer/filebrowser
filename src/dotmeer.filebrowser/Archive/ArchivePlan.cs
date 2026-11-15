@@ -34,7 +34,7 @@ public sealed record ArchiveSelection(
     public FileRef ToFileRef() => new(Root, Path);
 }
 
-/// <summary>Нарушен лимит SPEC §12.2 (число записей, объём, глубина, длина пути).</summary>
+/// <summary>Нарушен лимит (число записей, объём, глубина, длина пути).</summary>
 public sealed class ArchiveLimitExceededException : FileSystemResolutionException
 {
     public ArchiveLimitExceededException(string message) : base(message)

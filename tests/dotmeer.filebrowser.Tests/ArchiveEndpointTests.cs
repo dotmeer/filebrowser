@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace dotmeer.filebrowser.Tests;
 
 /// <summary>
-/// HTTP-эндпоинт скачивания архивом (SPEC §12.2, §16, §17): тикет,
+/// HTTP-эндпоинт скачивания архивом: тикет,
 /// структура архива, отсутствие Content-Length и Range, ошибки до
 /// начала ответа, ограничение одновременных архивов.
 /// </summary>
@@ -292,7 +292,7 @@ public sealed class ArchiveEndpointTests
 
         var english = await host.Client.GetStringAsync("/?root=files");
 
-        // Единая кнопка «Скачать» (SPEC §9.4): один файл — напрямую,
+        // Единая кнопка «Скачать»: один файл — напрямую,
         // папка или набор объектов — архивом. Отдельной кнопки ZIP нет.
         Assert.Contains("Download", english, StringComparison.Ordinal);
         Assert.DoesNotContain("Download ZIP", english, StringComparison.Ordinal);

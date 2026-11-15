@@ -31,7 +31,7 @@ public sealed record ManagedUser(
 public sealed record UserListResult(bool Allowed, IReadOnlyList<ManagedUser> Users);
 
 /// <summary>
-/// Административные действия над учётными записями (SPEC §6.4, §8.5).
+/// Административные действия над учётными записями.
 /// Полномочия проверяются на сервере в каждом вызове по текущей сессии в
 /// SQLite, поэтому прямой вызов обработчика обычной учёткой не проходит.
 /// </summary>

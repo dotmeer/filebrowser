@@ -139,7 +139,7 @@ public sealed class TaskAccessService(FileAccessService fileAccess)
     }
 
     /// <summary>
-    /// Публичная ссылка под AllRoots делегируется реальному корню (SPEC §7.1);
+    /// Публичная ссылка под AllRoots делегируется реальному корню;
     /// права проверяются по его имени, а не по имени виртуального корня.
     /// </summary>
     private static string ResolveRootName(FileRef reference) =>

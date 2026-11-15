@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace dotmeer.filebrowser.Tests;
 
 /// <summary>
-/// HTTP-контракт загрузки (SPEC §11, §16, §17): antiforgery, Content-Length,
+/// HTTP-контракт загрузки: antiforgery, Content-Length,
 /// лимит размера, конфликт имени, виртуальный корень, временные артефакты
 /// и запись задачи в историю.
 /// </summary>

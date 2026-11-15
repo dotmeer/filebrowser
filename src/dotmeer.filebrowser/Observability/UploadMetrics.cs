@@ -3,7 +3,7 @@ using System.Diagnostics.Metrics;
 namespace dotmeer.filebrowser.Observability;
 
 /// <summary>
-/// Метрики загрузки файлов (SPEC §11, §18). Итог фиксируется один раз на
+/// Метрики загрузки файлов. Итог фиксируется один раз на
 /// запрос: <c>completed</c>, <c>failed</c>, <c>cancelled</c>, <c>aborted</c>
 /// (обрыв соединения) или <c>rejected</c> (отказ до приёма тела).
 /// </summary>

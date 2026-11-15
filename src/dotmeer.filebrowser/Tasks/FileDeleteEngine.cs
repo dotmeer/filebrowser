@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 namespace dotmeer.filebrowser.Tasks;
 
 /// <summary>
-/// Двухфазная механика удаления (SPEC §9.5): предпроверка собирает все ошибки,
+/// Двухфазная механика удаления: предпроверка собирает все ошибки,
 /// затем каждый объект атомарно переименовывается в зарегистрированный
 /// временный артефакт и артефакт удаляется. Точка «удалено» — успешное
 /// переименование: имя сразу освобождается, а физическое освобождение места
@@ -103,7 +103,7 @@ public class FileDeleteEngine(
     internal async Task<TransferProgress> StartRunningAsync(FileTask task, FileDeletePlan plan, CancellationToken cancellationToken)
     {
         // Байты для удаления не показательны: прогресс и процент считаются
-        // по верхнеуровневым объектам (SPEC §13.9).
+        // по верхнеуровневым объектам.
         await repository.UpdateProgressAsync(task.Id, 0, null, 0, plan.Entries.Count, cancellationToken);
         await repository.TransitionAsync(task.Id, FileTaskStatus.Running, "running", cancellationToken: cancellationToken);
         return new TransferProgress(repository, runtimeProgress, task.Id, task.Type, null, plan.Entries.Count, metrics);

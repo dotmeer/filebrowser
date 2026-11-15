@@ -80,7 +80,7 @@ internal static class FileSystemTreeWalker
     /// <summary>
     /// Итеративный обход, который молча пропускает symlink/неподдерживаемые/исчезнувшие
     /// узлы (не возвращает их и не заходит внутрь) вместо исключения. Используется
-    /// поиском (SPEC §10.6): неподдерживаемые объекты исключаются, symlink не просматриваются.
+    /// поиском: неподдерживаемые объекты исключаются, symlink не просматриваются.
     /// </summary>
     public static IEnumerable<FileSystemTreeNode> EnumerateSkippingUnsupported(
         string rootPath,

@@ -13,7 +13,7 @@ using Microsoft.Extensions.Localization;
 namespace dotmeer.filebrowser.Endpoints;
 
 /// <summary>
-/// Приём файла из браузера (SPEC §11, §13.10, §16). Это единственный
+/// Приём файла из браузера. Это единственный
 /// изменяющий HTTP-эндпоинт приложения: байты нельзя передавать через
 /// Blazor circuit, поэтому загрузчик в браузере пишет их напрямую.
 /// Запрос защищён antiforgery (заголовок X-CSRF-TOKEN), принимает одно
@@ -281,8 +281,7 @@ public static class UploadEndpoint
         catch (OperationCanceledException) when (lifetime.ApplicationStopping.IsCancellationRequested)
         {
             // Остановка приложения — не пользовательская отмена: задача
-            // остаётся активной, временный артефакт удалит очистка при старте
-            // (SPEC §13.2, §13.5, §13.8).
+            // остаётся активной, временный артефакт удалит очистка при старте.
             return Results.Empty;
         }
         catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)

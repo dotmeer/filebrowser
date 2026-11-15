@@ -7,8 +7,8 @@ using Microsoft.Net.Http.Headers;
 namespace dotmeer.filebrowser.Endpoints;
 
 /// <summary>
-/// Эндпоинт предпросмотра файла для модального просмотрщика UI
-/// (SPEC §16 «Предпросмотр»). Близнец эндпоинта скачивания: тот же вход
+/// Эндпоинт предпросмотра файла для модального просмотрщика UI.
+/// Близнец эндпоинта скачивания: тот же вход
 /// root + относительный path, тот же resolver/validator через
 /// <see cref="FileSystemReadService.OpenFile"/>, тот же ProblemDetails-контракт
 /// через <see cref="FileSystemProblemMapper"/>. Отличия: MIME-тип и вид

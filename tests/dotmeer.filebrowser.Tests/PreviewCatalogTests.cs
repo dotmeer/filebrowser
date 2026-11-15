@@ -68,7 +68,7 @@ public sealed class PreviewCatalogTests
     public void Find_ExcludesInlineExecutableMarkup(string fileName)
     {
         // SVG/HTML исключены из whitelist: inline-отдача с того же origin
-        // привела бы к XSS (решение D084, SPEC §16).
+        // привела бы к XSS (решение D084).
         Assert.Null(PreviewCatalog.Find(fileName));
     }
 

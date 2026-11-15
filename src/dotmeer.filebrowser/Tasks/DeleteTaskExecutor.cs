@@ -26,8 +26,8 @@ public sealed class DeleteTaskExecutor(FileDeleteEngine engine, TaskAccessServic
                     await accessService.EnsureEntryAsync(task, entry.SourcePath, destination: null, cancellationToken);
                 }
 
-                // Отмена проверяется только на границе верхнеуровневых объектов
-                // (SPEC §13.9): переименование и удаление артефакта — критическая
+                // Отмена проверяется только на границе верхнеуровневых объектов:
+                // переименование и удаление артефакта — критическая
                 // секция, как публикация и удаление источника в move.
                 cancellationToken.ThrowIfCancellationRequested();
                 artifact = await engine.RegisterArtifactAsync(task, entry, cancellationToken);
@@ -48,7 +48,7 @@ public sealed class DeleteTaskExecutor(FileDeleteEngine engine, TaskAccessServic
                 await engine.DeleteArtifactAsync(artifact, CancellationToken.None);
                 await engine.RemoveArtifactAsync(artifact, CancellationToken.None);
                 await engine.CompleteItemAsync(task.Id, entry, CancellationToken.None);
-                // Прогресс задачи — по верхнеуровневым объектам (§13.9);
+                // Прогресс задачи — по верхнеуровневым объектам;
                 // счётчик вложенных узлов хранится в task_items.
                 await progress.ItemCompletedInstantlyAsync(entry.Bytes, 1, CancellationToken.None);
             }

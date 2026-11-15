@@ -10,7 +10,7 @@ namespace dotmeer.filebrowser.Tests;
 
 /// <summary>
 /// Приём файла: предпроверка, временный артефакт, публикация без перезаписи
-/// и очистка на любой неудаче (SPEC §11, §13.10).
+/// и очистка на любой неудаче.
 /// </summary>
 public sealed class UploadServiceTests
 {

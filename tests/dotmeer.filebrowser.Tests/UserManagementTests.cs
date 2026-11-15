@@ -14,7 +14,7 @@ namespace dotmeer.filebrowser.Tests;
 /// <summary>
 /// Итерация 4: админская страница пользователей, выдача прав, временный
 /// пароль, сброс и удаление, ограничение глобального языка и открытие
-/// рабочего доступа обычным учётным записям (SPEC §6.4–6.5, §8.5).
+/// рабочего доступа обычным учётным записям.
 /// </summary>
 [Collection("Web application factory")]
 public sealed class UserManagementTests

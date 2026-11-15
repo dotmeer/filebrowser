@@ -50,7 +50,7 @@ public sealed class PathResolver
 
         // Виртуальный корень «Все корни» read-only только на верхнем уровне.
         // Путь под ним (<корень>/<относительный путь>) делегируется реальному
-        // корню для всех операций, включая изменяющие (SPEC §7.1).
+        // корню для всех операций, включая изменяющие.
         var (root, relativeSegments) = ResolveRoot(fileRef.Root, segments);
 
         EnsureRootIsAvailable(root);

@@ -17,7 +17,7 @@ public sealed class TaskRepository(TaskDatabase database, TaskNotificationServic
     /// <summary>
     /// Creates a task that is already active and is not placed into the task
     /// queue. Used by upload: its lifecycle is driven by the HTTP request that
-    /// carries the bytes, so a worker must never pick it up (SPEC §13.10).
+    /// carries the bytes, so a worker must never pick it up.
     /// </summary>
     public Task<FileTask> CreateActiveAsync(
         FileTaskType type,

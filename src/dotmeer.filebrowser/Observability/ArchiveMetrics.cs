@@ -3,7 +3,7 @@ using System.Diagnostics.Metrics;
 namespace dotmeer.filebrowser.Observability;
 
 /// <summary>
-/// Метрики скачивания архивом (SPEC §12.2, §18). Завершение фиксируется
+/// Метрики скачивания архивом. Завершение фиксируется
 /// один раз на запрос: `completed`, `aborted` (обрыв соединения или
 /// ошибка после начала ответа) или `rejected` (ошибка до начала ответа).
 /// </summary>

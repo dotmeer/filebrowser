@@ -10,7 +10,7 @@ using Microsoft.Data.Sqlite;
 namespace dotmeer.filebrowser.Uploads;
 
 /// <summary>
-/// Приём файла из HTTP-запроса (SPEC §11, §13.10). Пишет байты во
+/// Приём файла из HTTP-запроса. Пишет байты во
 /// временный артефакт <c>.filebrowser-*</c> в каталоге назначения и
 /// публикует его под конечным именем только после полного приёма.
 /// Жизненный цикл задачи типа <c>upload</c> ведёт вызывающий эндпоинт:
@@ -86,7 +86,7 @@ public sealed class UploadService(
 
     /// <summary>
     /// Создаёт задачу <c>upload</c> в состоянии scanning и регистрирует
-    /// временный артефакт до его появления на диске (SPEC §13.5).
+    /// временный артефакт до его появления на диске.
     /// </summary>
     public async Task<UploadSession> StartAsync(
         UploadPreflight preflight,
@@ -152,7 +152,7 @@ public sealed class UploadService(
 
     /// <summary>
     /// Потоково принимает тело запроса. Промежуточный прогресс сохраняется
-    /// не чаще раза в секунду (SPEC §13.6).
+    /// не чаще раза в секунду.
     /// </summary>
     public async Task<long> ReceiveAsync(
         UploadSession session,

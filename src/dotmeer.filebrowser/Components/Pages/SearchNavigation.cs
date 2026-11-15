@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.WebUtilities;
 namespace dotmeer.filebrowser.Components.Pages;
 
 /// <summary>
-/// Построение URL навигации из результатов поиска (SPEC §9.7):
+/// Построение URL навигации из результатов поиска:
 /// каталог открывается по своему пути, файл — через родительскую папку
 /// с параметром подсветки highlight. Имена кодируются в URL.
 /// </summary>
@@ -13,7 +13,7 @@ public static class SearchNavigation
     /// Родительский путь объекта (всё до последнего '/' в его пути).
     /// Пустая строка, если сепаратора нет, — объект лежит непосредственно
     /// в корне поисковой области; имя корня для подзаголовка добавляет
-    /// вызывающий код (SPEC §9.7).
+    /// вызывающий код.
     /// </summary>
     public static string GetParentPath(string path)
     {

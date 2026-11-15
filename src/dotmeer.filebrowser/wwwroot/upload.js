@@ -1,4 +1,4 @@
-// Browser-side uploader (SPEC §11). File bytes never pass through the
+// Browser-side uploader. File bytes never pass through the
 // Blazor circuit: this script sends them directly with XMLHttpRequest,
 // which is the only API that reports upload progress. Blazor receives only
 // small state callbacks so it can refresh the listing and reconcile a lost

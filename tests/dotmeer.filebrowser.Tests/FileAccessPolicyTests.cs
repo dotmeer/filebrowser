@@ -11,9 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace dotmeer.filebrowser.Tests;
 
 /// <summary>
-/// Политика прав на корни и защита служебных каталогов (SPEC §6.4–6.5,
-/// §9.1, §12.2). Тесты вызывают прикладные сервисы напрямую с явно
-/// заданным актором: публичный допуск обычных учёток в UI ещё закрыт.
+/// Политика прав на корни и защита служебных каталогов. Тесты вызывают прикладные сервисы напрямую с явно
+/// заданным актором.
 /// </summary>
 [Collection("Web application factory")]
 public sealed class FileAccessPolicyTests
