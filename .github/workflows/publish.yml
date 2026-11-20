@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -62,3 +63,52 @@ jobs:
             fi
           fi
 
+  forgejo:
+    if: ${{ github.server_url != 'https://github.com' }}
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_HOST: ${{ vars.CI_DOCKER_HOST }}
+      REGISTRY: ${{ vars.CI_REGISTRY }}
+      REGISTRY_USER: ${{ vars.CI_REGISTRY_USER }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check configuration and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$DOCKER_HOST" || -z "$REGISTRY" || -z "$REGISTRY_USER" ]]; then
+            echo "Set the CI_DOCKER_HOST, CI_REGISTRY and CI_REGISTRY_USER variables." >&2
+            exit 1
+          fi
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Unsupported version tag: $TAG" >&2
+            exit 1
+          fi
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Docker CLI
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends docker.io
+      - name: Build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          image="${REGISTRY}/${REGISTRY_USER}/filebrowser"
+          docker build -t "${image}:${version}" .
+      - name: Sign in to registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -eu
+          printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
+      - name: Publish image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          image="${REGISTRY}/${REGISTRY_USER}/filebrowser"
+          docker push "${image}:${version}"
